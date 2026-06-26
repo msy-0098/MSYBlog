@@ -1,0 +1,40 @@
+# IDE and editor
+.idea/
+.vscode/
+*.code-workspace
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.local.yaml
+config.local.yaml
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Logs
+*.log
+logs/
+
+# Go build and test outputs
+bin/
+build/
+dist/
+tmp/
+*.exe
+*.test
+*.out
+coverage.out
+
+# Runtime data
+data/*.db
+data/*.db-*
+uploads/*
+!uploads/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
