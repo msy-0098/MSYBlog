@@ -1,0 +1,19 @@
+server:
+  address: 127.0.0.1:8080
+
+database:
+  dsn: data/blog.db
+
+site:
+  siteTitle: 马森雨的技术博客
+  subtitle: 用 Go、Vue 和 AI 工具构建清爽可靠的技术作品
+  owner: 马森雨
+  domain: masenyu.top
+  description: 记录项目实践、技术复盘和持续成长。
+  navItems:
+    - 首页
+    - 文章
+    - 分类
+    - 项目
+    - 关于
+
