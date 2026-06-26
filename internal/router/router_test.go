@@ -12,13 +12,14 @@ import (
 )
 
 func TestSiteEndpointReturnsDefaultSiteProfile(t *testing.T) {
-	db, err := database.Open(database.Options{DSN: "file::memory:?cache=shared"})
+	cfg := config.Default()
+	db, err := database.Open(database.Options{DSN: testDatabaseDSN(t), Config: cfg})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
 
 	engine := router.New(router.Dependencies{
-		Config:   config.Default(),
+		Config:   cfg,
 		Database: db,
 	})
 

@@ -9,11 +9,14 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"masenyu.top/blog/backend/internal/auth"
+	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/model"
 )
 
 type Options struct {
-	DSN string
+	DSN    string
+	Config config.Config
 }
 
 func Open(options Options) (*gorm.DB, error) {
@@ -33,7 +36,19 @@ func Open(options Options) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if err := db.AutoMigrate(&model.SiteSetting{}, &model.Category{}, &model.Tag{}, &model.Post{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.SiteSetting{},
+		&model.User{},
+		&model.Category{},
+		&model.Tag{},
+		&model.Post{},
+		&model.Project{},
+		&model.Upload{},
+	); err != nil {
+		return nil, err
+	}
+
+	if err := SeedInitialAdmin(db, options.Config); err != nil {
 		return nil, err
 	}
 
@@ -42,6 +57,30 @@ func Open(options Options) (*gorm.DB, error) {
 	}
 
 	return db, SeedDefaultBlogContent(db)
+}
+
+func SeedInitialAdmin(db *gorm.DB, cfg config.Config) error {
+	if cfg.Admin.InitialPassword == "" {
+		return nil
+	}
+
+	var count int64
+	if err := db.Model(&model.User{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	hash, err := auth.HashPassword(cfg.Admin.InitialPassword)
+	if err != nil {
+		return err
+	}
+
+	return db.Create(&model.User{
+		Username:     cfg.Admin.InitialUsername,
+		PasswordHash: hash,
+	}).Error
 }
 
 func SeedDefaultSiteSettings(db *gorm.DB) error {
@@ -55,8 +94,8 @@ func SeedDefaultSiteSettings(db *gorm.DB) error {
 	}
 
 	for key, value := range defaults {
-		setting := model.SiteSetting{Key: key}
-		if err := db.FirstOrCreate(&setting, model.SiteSetting{Key: key, Value: value}).Error; err != nil {
+		setting := model.SiteSetting{Key: key, Value: value}
+		if err := db.Where("key = ?", key).FirstOrCreate(&setting).Error; err != nil {
 			return err
 		}
 	}

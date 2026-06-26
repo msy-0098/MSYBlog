@@ -18,7 +18,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := database.Open(database.Options{DSN: cfg.Database.DSN})
+	db, err := database.Open(database.Options{DSN: cfg.Database.DSN, Config: cfg})
 	if err != nil {
 		logger.Error("open database", "error", err)
 		os.Exit(1)

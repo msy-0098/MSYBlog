@@ -8,6 +8,7 @@ import (
 
 	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/handler"
+	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/response"
 )
 
@@ -21,9 +22,12 @@ func New(deps Dependencies) *gin.Engine {
 
 	engine := gin.New()
 	engine.Use(gin.Logger(), gin.Recovery())
+	engine.Static("/uploads", "uploads")
 
 	siteHandler := handler.NewSiteHandler(deps.Database, deps.Config)
 	blogHandler := handler.NewBlogHandler(deps.Database)
+	adminAuthHandler := handler.NewAdminAuthHandler(deps.Database, deps.Config.Auth.JWTSecret)
+	adminContentHandler := handler.NewAdminContentHandler(deps.Database)
 
 	api := engine.Group("/api")
 	api.GET("/site", siteHandler.GetSite)
@@ -37,7 +41,32 @@ func New(deps Dependencies) *gin.Engine {
 	api.GET("/tags", blogHandler.ListTags)
 	api.GET("/tags/:slug/posts", blogHandler.ListTagPosts)
 	api.GET("/archive", blogHandler.Archive)
+	api.GET("/projects", blogHandler.ListProjects)
 	api.GET("/search", blogHandler.Search)
+	api.POST("/admin/login", adminAuthHandler.Login)
+
+	admin := api.Group("/admin", middleware.RequireAuth(deps.Config.Auth.JWTSecret))
+	admin.GET("/profile", adminAuthHandler.Profile)
+	admin.GET("/posts", adminContentHandler.ListAdminPosts)
+	admin.POST("/posts", adminContentHandler.CreatePost)
+	admin.GET("/posts/:id", adminContentHandler.GetAdminPost)
+	admin.PUT("/posts/:id", adminContentHandler.UpdatePost)
+	admin.DELETE("/posts/:id", adminContentHandler.DeletePost)
+	admin.GET("/categories", adminContentHandler.ListAdminCategories)
+	admin.POST("/categories", adminContentHandler.CreateCategory)
+	admin.PUT("/categories/:id", adminContentHandler.UpdateCategory)
+	admin.DELETE("/categories/:id", adminContentHandler.DeleteCategory)
+	admin.GET("/tags", adminContentHandler.ListAdminTags)
+	admin.POST("/tags", adminContentHandler.CreateTag)
+	admin.PUT("/tags/:id", adminContentHandler.UpdateTag)
+	admin.DELETE("/tags/:id", adminContentHandler.DeleteTag)
+	admin.GET("/projects", adminContentHandler.ListProjects)
+	admin.POST("/projects", adminContentHandler.CreateProject)
+	admin.PUT("/projects/:id", adminContentHandler.UpdateProject)
+	admin.DELETE("/projects/:id", adminContentHandler.DeleteProject)
+	admin.GET("/settings", adminContentHandler.GetSettings)
+	admin.PUT("/settings", adminContentHandler.UpdateSettings)
+	admin.POST("/upload", adminContentHandler.UploadImage)
 
 	engine.NoRoute(func(c *gin.Context) {
 		response.Error(c, http.StatusNotFound, 404, "资源不存在")

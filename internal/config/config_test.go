@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"masenyu.top/blog/backend/internal/config"
@@ -21,5 +22,32 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Database.DSN != "file::memory:?cache=shared" {
 		t.Fatalf("expected env database dsn, got %q", cfg.Database.DSN)
+	}
+}
+
+func TestLoadRejectsDefaultJWTSecretInReleaseMode(t *testing.T) {
+	t.Setenv("GIN_MODE", "release")
+
+	_, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
+	if err == nil {
+		t.Fatal("expected release config with default JWT secret to fail")
+	}
+
+	if !strings.Contains(err.Error(), "BLOG_JWT_SECRET") {
+		t.Fatalf("expected error to mention BLOG_JWT_SECRET, got %q", err.Error())
+	}
+}
+
+func TestLoadRejectsDefaultAdminPasswordInReleaseMode(t *testing.T) {
+	t.Setenv("GIN_MODE", "release")
+	t.Setenv("BLOG_JWT_SECRET", "release-test-secret")
+
+	_, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
+	if err == nil {
+		t.Fatal("expected release config with default admin password to fail")
+	}
+
+	if !strings.Contains(err.Error(), "BLOG_ADMIN_INITIAL_PASSWORD") {
+		t.Fatalf("expected error to mention BLOG_ADMIN_INITIAL_PASSWORD, got %q", err.Error())
 	}
 }

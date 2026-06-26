@@ -137,18 +137,61 @@ func TestCategoryTagSearchAndArchiveEndpoints(t *testing.T) {
 	assertListHasItems(t, archive)
 }
 
+func TestPublicProjectsEndpointReturnsReadableServerError(t *testing.T) {
+	engine, sqlDB := newTestEngineWithDatabase(t)
+
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
+
+	recorder := performRequest(engine, http.MethodGet, "/api/projects")
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected projects status 500, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var body struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	decodeJSON(t, recorder, &body)
+
+	if body.Code != 500 {
+		t.Fatalf("expected response code 500, got %d", body.Code)
+	}
+	if body.Message != "服务端错误" {
+		t.Fatalf("unexpected server error message %q", body.Message)
+	}
+}
+
 func newTestEngine(t *testing.T) http.Handler {
 	t.Helper()
 
-	db, err := database.Open(database.Options{DSN: "file::memory:?cache=shared"})
+	engine, _ := newTestEngineWithDatabase(t)
+	return engine
+}
+
+func newTestEngineWithDatabase(t *testing.T) (http.Handler, interface{ Close() error }) {
+	t.Helper()
+
+	cfg, err := config.Load("__missing_test_config__.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	db, err := database.Open(database.Options{DSN: testDatabaseDSN(t), Config: cfg})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
 
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql database: %v", err)
+	}
+
 	return router.New(router.Dependencies{
-		Config:   config.Default(),
+		Config:   cfg,
 		Database: db,
-	})
+	}), sqlDB
 }
 
 func performRequest(handler http.Handler, method string, target string) *httptest.ResponseRecorder {

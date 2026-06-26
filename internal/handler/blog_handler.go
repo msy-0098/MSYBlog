@@ -242,6 +242,24 @@ func (h BlogHandler) Archive(c *gin.Context) {
 	response.Success(c, ListDTO[ArchiveYear]{List: years})
 }
 
+func (h BlogHandler) ListProjects(c *gin.Context) {
+	var projects []model.Project
+	if err := h.db.Where("visible = ?", true).
+		Order("sort desc").
+		Order("updated_at desc").
+		Find(&projects).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+
+	list := make([]ProjectDTO, 0, len(projects))
+	for _, project := range projects {
+		list = append(list, projectDTO(project))
+	}
+
+	response.Success(c, ListDTO[ProjectDTO]{List: list})
+}
+
 func (h BlogHandler) paginatedPosts(filters postFilters, page int, pageSize int) (PageDTO[PostSummary], error) {
 	var total int64
 	if err := h.postQuery(filters).Distinct("posts.id").Count(&total).Error; err != nil {

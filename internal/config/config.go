@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -11,6 +12,8 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	Site     SiteConfig     `yaml:"site"`
+	Admin    AdminConfig    `yaml:"admin"`
+	Auth     AuthConfig     `yaml:"auth"`
 }
 
 type ServerConfig struct {
@@ -30,6 +33,15 @@ type SiteConfig struct {
 	NavItems    []string `yaml:"navItems"`
 }
 
+type AdminConfig struct {
+	InitialUsername string `yaml:"initialUsername"`
+	InitialPassword string `yaml:"initialPassword"`
+}
+
+type AuthConfig struct {
+	JWTSecret string `yaml:"jwtSecret"`
+}
+
 func Default() Config {
 	return Config{
 		Server: ServerConfig{
@@ -46,6 +58,13 @@ func Default() Config {
 			Description: "记录项目实践、技术复盘和持续成长。",
 			NavItems:    []string{"首页", "文章", "分类", "项目", "关于"},
 		},
+		Admin: AdminConfig{
+			InitialUsername: "masenyu812@gmail.com",
+			InitialPassword: "local-development-admin-password",
+		},
+		Auth: AuthConfig{
+			JWTSecret: "local-development-secret",
+		},
 	}
 }
 
@@ -55,7 +74,7 @@ func Load(path string) (Config, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return withEnvironmentOverrides(cfg), nil
+			return finalize(withEnvironmentOverrides(cfg))
 		}
 		return Config{}, err
 	}
@@ -64,7 +83,21 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 
-	return withEnvironmentOverrides(withDefaults(cfg)), nil
+	return finalize(withEnvironmentOverrides(withDefaults(cfg)))
+}
+
+func finalize(cfg Config) (Config, error) {
+	if os.Getenv("GIN_MODE") == "release" {
+		defaults := Default()
+		if cfg.Auth.JWTSecret == defaults.Auth.JWTSecret {
+			return Config{}, fmt.Errorf("BLOG_JWT_SECRET must be configured in release mode")
+		}
+		if cfg.Admin.InitialPassword == defaults.Admin.InitialPassword {
+			return Config{}, fmt.Errorf("BLOG_ADMIN_INITIAL_PASSWORD must be configured in release mode")
+		}
+	}
+
+	return cfg, nil
 }
 
 func withDefaults(cfg Config) Config {
@@ -94,6 +127,15 @@ func withDefaults(cfg Config) Config {
 	if len(cfg.Site.NavItems) == 0 {
 		cfg.Site.NavItems = defaults.Site.NavItems
 	}
+	if cfg.Admin.InitialUsername == "" {
+		cfg.Admin.InitialUsername = defaults.Admin.InitialUsername
+	}
+	if cfg.Admin.InitialPassword == "" {
+		cfg.Admin.InitialPassword = defaults.Admin.InitialPassword
+	}
+	if cfg.Auth.JWTSecret == "" {
+		cfg.Auth.JWTSecret = defaults.Auth.JWTSecret
+	}
 
 	return cfg
 }
@@ -104,6 +146,15 @@ func withEnvironmentOverrides(cfg Config) Config {
 	}
 	if value := os.Getenv("BLOG_DATABASE_DSN"); value != "" {
 		cfg.Database.DSN = value
+	}
+	if value := os.Getenv("BLOG_ADMIN_INITIAL_USERNAME"); value != "" {
+		cfg.Admin.InitialUsername = value
+	}
+	if value := os.Getenv("BLOG_ADMIN_INITIAL_PASSWORD"); value != "" {
+		cfg.Admin.InitialPassword = value
+	}
+	if value := os.Getenv("BLOG_JWT_SECRET"); value != "" {
+		cfg.Auth.JWTSecret = value
 	}
 
 	return cfg
