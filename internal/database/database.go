@@ -64,23 +64,27 @@ func SeedInitialAdmin(db *gorm.DB, cfg config.Config) error {
 		return nil
 	}
 
-	var count int64
-	if err := db.Model(&model.User{}).Count(&count).Error; err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
+	var admin model.User
+	err := db.Where("username = ?", cfg.Admin.InitialUsername).First(&admin).Error
+	if err != nil {
+		// Administrator not found, create new
+		hash, err := auth.HashPassword(cfg.Admin.InitialPassword)
+		if err != nil {
+			return err
+		}
+		return db.Create(&model.User{
+			Username:     cfg.Admin.InitialUsername,
+			PasswordHash: hash,
+		}).Error
 	}
 
+	// Administrator found, synchronize with latest configured initial password
 	hash, err := auth.HashPassword(cfg.Admin.InitialPassword)
 	if err != nil {
 		return err
 	}
-
-	return db.Create(&model.User{
-		Username:     cfg.Admin.InitialUsername,
-		PasswordHash: hash,
-	}).Error
+	admin.PasswordHash = hash
+	return db.Save(&admin).Error
 }
 
 func SeedDefaultSiteSettings(db *gorm.DB) error {
