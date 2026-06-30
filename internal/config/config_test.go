@@ -12,6 +12,14 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	t.Setenv("BLOG_SERVER_ADDRESS", "127.0.0.1:18080")
 	t.Setenv("BLOG_DATABASE_DRIVER", "mysql")
 	t.Setenv("BLOG_DATABASE_DSN", "file::memory:?cache=shared")
+	t.Setenv("BLOG_SMTP_HOST", "smtp.qq.com")
+	t.Setenv("BLOG_SMTP_PORT", "587")
+	t.Setenv("BLOG_SMTP_USERNAME", "reader@example.com")
+	t.Setenv("BLOG_SMTP_PASSWORD", "smtp-password")
+	t.Setenv("BLOG_SMTP_FROM", "reader@example.com")
+	t.Setenv("BLOG_AI_PROVIDER", "openai-compatible")
+	t.Setenv("BLOG_AI_MODEL", "analysis-model")
+	t.Setenv("BLOG_AI_API_KEY", "analysis-key")
 
 	cfg, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
 	if err != nil {
@@ -26,6 +34,12 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Database.Driver != "mysql" {
 		t.Fatalf("expected env database driver, got %q", cfg.Database.Driver)
+	}
+	if cfg.Mail.SMTPHost != "smtp.qq.com" || cfg.Mail.Username != "reader@example.com" || cfg.Mail.Password != "smtp-password" {
+		t.Fatalf("expected SMTP env overrides, got %#v", cfg.Mail)
+	}
+	if cfg.AI.Provider != "openai-compatible" || cfg.AI.Model != "analysis-model" || cfg.AI.APIKey != "analysis-key" {
+		t.Fatalf("expected AI env overrides, got %#v", cfg.AI)
 	}
 }
 

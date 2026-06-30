@@ -47,7 +47,7 @@ func (h AdminAuthHandler) Login(c *gin.Context) {
 
 	username := strings.TrimSpace(req.Username)
 	var user model.User
-	if err := h.db.Where("username = ?", username).First(&user).Error; err != nil {
+	if err := h.db.Where("username = ? AND role = ?", username, model.UserRoleAdmin).First(&user).Error; err != nil {
 		response.Error(c, http.StatusUnauthorized, 401, "账号或密码错误")
 		return
 	}
@@ -57,7 +57,7 @@ func (h AdminAuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := auth.GenerateToken(h.jwtSecret, user.ID, user.Username, time.Now())
+	token, err := auth.GenerateTokenWithRole(h.jwtSecret, user.ID, user.Username, user.Role, time.Now())
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
 		return

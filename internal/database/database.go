@@ -55,9 +55,11 @@ func Open(options Options) (*gorm.DB, error) {
 	if err := db.AutoMigrate(
 		&model.SiteSetting{},
 		&model.User{},
+		&model.EmailVerificationCode{},
 		&model.Category{},
 		&model.Tag{},
 		&model.Post{},
+		&model.Comment{},
 		&model.Project{},
 		&model.Upload{},
 	); err != nil {
@@ -99,8 +101,12 @@ func SeedInitialAdmin(db *gorm.DB, cfg config.Config) error {
 		if err != nil {
 			return err
 		}
+		email := cfg.Admin.InitialUsername
 		return db.Create(&model.User{
 			Username:     cfg.Admin.InitialUsername,
+			Email:        email,
+			Nickname:     "管理员",
+			Role:         model.UserRoleAdmin,
 			PasswordHash: hash,
 		}).Error
 	}
@@ -111,6 +117,13 @@ func SeedInitialAdmin(db *gorm.DB, cfg config.Config) error {
 		return err
 	}
 	admin.PasswordHash = hash
+	admin.Role = model.UserRoleAdmin
+	if admin.Email == "" {
+		admin.Email = admin.Username
+	}
+	if admin.Nickname == "" {
+		admin.Nickname = "管理员"
+	}
 	return db.Save(&admin).Error
 }
 

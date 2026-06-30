@@ -14,6 +14,8 @@ type Config struct {
 	Site     SiteConfig     `yaml:"site"`
 	Admin    AdminConfig    `yaml:"admin"`
 	Auth     AuthConfig     `yaml:"auth"`
+	Mail     MailConfig     `yaml:"mail"`
+	AI       AIConfig       `yaml:"ai"`
 }
 
 type ServerConfig struct {
@@ -43,6 +45,20 @@ type AuthConfig struct {
 	JWTSecret string `yaml:"jwtSecret"`
 }
 
+type MailConfig struct {
+	SMTPHost string `yaml:"smtpHost"`
+	SMTPPort string `yaml:"smtpPort"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	From     string `yaml:"from"`
+}
+
+type AIConfig struct {
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
+	APIKey   string `yaml:"apiKey"`
+}
+
 func Default() Config {
 	return Config{
 		Server: ServerConfig{
@@ -66,6 +82,13 @@ func Default() Config {
 		},
 		Auth: AuthConfig{
 			JWTSecret: "local-development-secret",
+		},
+		Mail: MailConfig{
+			SMTPPort: "587",
+		},
+		AI: AIConfig{
+			Provider: "local",
+			Model:    "local-blog-analyst",
 		},
 	}
 }
@@ -141,6 +164,15 @@ func withDefaults(cfg Config) Config {
 	if cfg.Auth.JWTSecret == "" {
 		cfg.Auth.JWTSecret = defaults.Auth.JWTSecret
 	}
+	if cfg.Mail.SMTPPort == "" {
+		cfg.Mail.SMTPPort = defaults.Mail.SMTPPort
+	}
+	if cfg.AI.Provider == "" {
+		cfg.AI.Provider = defaults.AI.Provider
+	}
+	if cfg.AI.Model == "" {
+		cfg.AI.Model = defaults.AI.Model
+	}
 
 	return cfg
 }
@@ -163,6 +195,30 @@ func withEnvironmentOverrides(cfg Config) Config {
 	}
 	if value := os.Getenv("BLOG_JWT_SECRET"); value != "" {
 		cfg.Auth.JWTSecret = value
+	}
+	if value := os.Getenv("BLOG_SMTP_HOST"); value != "" {
+		cfg.Mail.SMTPHost = value
+	}
+	if value := os.Getenv("BLOG_SMTP_PORT"); value != "" {
+		cfg.Mail.SMTPPort = value
+	}
+	if value := os.Getenv("BLOG_SMTP_USERNAME"); value != "" {
+		cfg.Mail.Username = value
+	}
+	if value := os.Getenv("BLOG_SMTP_PASSWORD"); value != "" {
+		cfg.Mail.Password = value
+	}
+	if value := os.Getenv("BLOG_SMTP_FROM"); value != "" {
+		cfg.Mail.From = value
+	}
+	if value := os.Getenv("BLOG_AI_PROVIDER"); value != "" {
+		cfg.AI.Provider = value
+	}
+	if value := os.Getenv("BLOG_AI_MODEL"); value != "" {
+		cfg.AI.Model = value
+	}
+	if value := os.Getenv("BLOG_AI_API_KEY"); value != "" {
+		cfg.AI.APIKey = value
 	}
 
 	return cfg

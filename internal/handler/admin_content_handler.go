@@ -536,22 +536,7 @@ func (h AdminContentHandler) findPost(c *gin.Context) (model.Post, bool) {
 }
 
 func (h AdminContentHandler) findByID(c *gin.Context, target any) bool {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil || id < 1 {
-		badRequest(c)
-		return false
-	}
-
-	if err := h.db.First(target, id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			response.Error(c, http.StatusNotFound, 404, "资源不存在")
-			return false
-		}
-		internalError(c)
-		return false
-	}
-
-	return true
+	return findByIDParam(c, h.db, target)
 }
 
 func (h AdminContentHandler) readSettings() map[string]string {
@@ -668,6 +653,25 @@ func formatTime(value time.Time) string {
 
 func badRequest(c *gin.Context) {
 	response.Error(c, http.StatusBadRequest, 400, "参数错误")
+}
+
+func findByIDParam(c *gin.Context, db *gorm.DB, target any) bool {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id < 1 {
+		badRequest(c)
+		return false
+	}
+
+	if err := db.First(target, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.Error(c, http.StatusNotFound, 404, "资源不存在")
+			return false
+		}
+		internalError(c)
+		return false
+	}
+
+	return true
 }
 
 func internalError(c *gin.Context) {
