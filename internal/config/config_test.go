@@ -77,3 +77,20 @@ func TestLoadRejectsDefaultAdminPasswordInReleaseMode(t *testing.T) {
 		t.Fatalf("expected error to mention BLOG_ADMIN_INITIAL_PASSWORD, got %q", err.Error())
 	}
 }
+
+func TestLoadRejectsSQLiteDatabaseInReleaseMode(t *testing.T) {
+	t.Setenv("GIN_MODE", "release")
+	t.Setenv("BLOG_JWT_SECRET", "release-test-secret")
+	t.Setenv("BLOG_ADMIN_INITIAL_PASSWORD", "release-admin-password")
+	t.Setenv("BLOG_DATABASE_DRIVER", "sqlite")
+	t.Setenv("BLOG_DATABASE_DSN", "data/blog.db")
+
+	_, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
+	if err == nil {
+		t.Fatal("expected release config with sqlite database to fail")
+	}
+
+	if !strings.Contains(err.Error(), "BLOG_DATABASE_DRIVER") {
+		t.Fatalf("expected error to mention BLOG_DATABASE_DRIVER, got %q", err.Error())
+	}
+}

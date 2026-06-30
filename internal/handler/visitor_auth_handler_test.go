@@ -11,8 +11,8 @@ import (
 	"masenyu.top/blog/backend/internal/config"
 )
 
-func TestSendCodeEmailIncludesFromHeader(t *testing.T) {
-	host, port := startSMTPServerRequiringFromHeader(t, "sender@example.com")
+func TestSendCodeEmailUsesRegistrationEmailAsRecipient(t *testing.T) {
+	host, port := startSMTPServerRequiringHeaders(t, "sender@example.com", "reader@example.com")
 	handler := VisitorAuthHandler{
 		cfg: config.Config{
 			Mail: config.MailConfig{
@@ -26,11 +26,11 @@ func TestSendCodeEmailIncludesFromHeader(t *testing.T) {
 	}
 
 	if err := handler.sendCodeEmail("reader@example.com", "123456"); err != nil {
-		t.Fatalf("expected email with From header to be accepted, got %v", err)
+		t.Fatalf("expected email to be addressed to registration email, got %v", err)
 	}
 }
 
-func startSMTPServerRequiringFromHeader(t *testing.T, expectedFrom string) (string, string) {
+func startSMTPServerRequiringHeaders(t *testing.T, expectedFrom string, expectedTo string) (string, string) {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -46,7 +46,7 @@ func startSMTPServerRequiringFromHeader(t *testing.T, expectedFrom string) (stri
 			return
 		}
 		defer conn.Close()
-		done <- handleSMTPConnection(conn, expectedFrom)
+		done <- handleSMTPConnection(conn, expectedFrom, expectedTo)
 	}()
 
 	t.Cleanup(func() {
@@ -64,9 +64,10 @@ func startSMTPServerRequiringFromHeader(t *testing.T, expectedFrom string) (stri
 	return "localhost", port
 }
 
-func handleSMTPConnection(conn net.Conn, expectedFrom string) error {
+func handleSMTPConnection(conn net.Conn, expectedFrom string, expectedTo string) error {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
+	var recipient string
 	writeLine := func(line string) error {
 		if _, err := writer.WriteString(line + "\r\n"); err != nil {
 			return err
@@ -103,6 +104,10 @@ func handleSMTPConnection(conn net.Conn, expectedFrom string) error {
 				return err
 			}
 		case strings.HasPrefix(upper, "RCPT TO:"):
+			recipient = extractSMTPAddress(command)
+			if recipient != expectedTo {
+				return fmt.Errorf("expected smtp envelope recipient %q, got %q", expectedTo, recipient)
+			}
 			if err := writeLine("250 OK"); err != nil {
 				return err
 			}
@@ -115,8 +120,8 @@ func handleSMTPConnection(conn net.Conn, expectedFrom string) error {
 				return err
 			}
 			parsed, err := mail.ReadMessage(strings.NewReader(message))
-			if err != nil || parsed.Header.Get("From") != expectedFrom {
-				if err := writeLine(`550 The "From" header is missing or invalid`); err != nil {
+			if err != nil || parsed.Header.Get("From") != expectedFrom || parsed.Header.Get("To") != expectedTo {
+				if err := writeLine(`550 The "From" or "To" header is missing or invalid`); err != nil {
 					return err
 				}
 				continue
@@ -130,6 +135,21 @@ func handleSMTPConnection(conn net.Conn, expectedFrom string) error {
 			return fmt.Errorf("unexpected smtp command %q", command)
 		}
 	}
+}
+
+func extractSMTPAddress(command string) string {
+	start := strings.Index(command, "<")
+	end := strings.LastIndex(command, ">")
+	if start >= 0 && end > start {
+		return command[start+1 : end]
+	}
+
+	_, value, ok := strings.Cut(command, ":")
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(value)
 }
 
 func readSMTPData(reader *bufio.Reader) (string, error) {

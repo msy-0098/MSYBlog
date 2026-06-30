@@ -120,6 +120,9 @@ func finalize(cfg Config) (Config, error) {
 		if cfg.Admin.InitialPassword == defaults.Admin.InitialPassword {
 			return Config{}, fmt.Errorf("BLOG_ADMIN_INITIAL_PASSWORD must be configured in release mode")
 		}
+		if cfg.Database.Driver != "mysql" {
+			return Config{}, fmt.Errorf("BLOG_DATABASE_DRIVER must be mysql in release mode")
+		}
 	}
 
 	return cfg, nil
