@@ -216,6 +216,7 @@ func (h VisitorAuthHandler) sendCodeEmail(email string, code string) error {
 	address := host + ":" + h.cfg.Mail.SMTPPort
 	authenticator := smtp.PlainAuth("", h.cfg.Mail.Username, h.cfg.Mail.Password, host)
 	message := strings.Join([]string{
+		"From: " + from,
 		"To: " + email,
 		"Subject: =?UTF-8?B?5Y2a5a6i6K6o6K66IOmqjOivgeeggQ==?=",
 		"MIME-Version: 1.0",
