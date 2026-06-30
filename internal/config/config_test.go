@@ -10,6 +10,7 @@ import (
 
 func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	t.Setenv("BLOG_SERVER_ADDRESS", "127.0.0.1:18080")
+	t.Setenv("BLOG_DATABASE_DRIVER", "mysql")
 	t.Setenv("BLOG_DATABASE_DSN", "file::memory:?cache=shared")
 
 	cfg, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
@@ -22,6 +23,17 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Database.DSN != "file::memory:?cache=shared" {
 		t.Fatalf("expected env database dsn, got %q", cfg.Database.DSN)
+	}
+	if cfg.Database.Driver != "mysql" {
+		t.Fatalf("expected env database driver, got %q", cfg.Database.Driver)
+	}
+}
+
+func TestDefaultDatabaseDriverIsSQLite(t *testing.T) {
+	cfg := config.Default()
+
+	if cfg.Database.Driver != "sqlite" {
+		t.Fatalf("expected sqlite default driver, got %q", cfg.Database.Driver)
 	}
 }
 

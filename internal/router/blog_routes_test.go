@@ -97,6 +97,26 @@ func TestPostDetailEndpointReturnsMarkdownAndAdjacentPosts(t *testing.T) {
 	}
 }
 
+func TestPostDetailEndpointIncrementsViewCount(t *testing.T) {
+	engine := newTestEngine(t)
+
+	first := performRequest(engine, http.MethodGet, "/api/posts/go-gin-sqlite-blog")
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected first detail status 200, got %d with body %s", first.Code, first.Body.String())
+	}
+	firstCount := decodePostViewCount(t, first)
+
+	second := performRequest(engine, http.MethodGet, "/api/posts/go-gin-sqlite-blog")
+	if second.Code != http.StatusOK {
+		t.Fatalf("expected second detail status 200, got %d with body %s", second.Code, second.Body.String())
+	}
+	secondCount := decodePostViewCount(t, second)
+
+	if secondCount != firstCount+1 {
+		t.Fatalf("expected view count to increment from %d to %d, got %d", firstCount, firstCount+1, secondCount)
+	}
+}
+
 func TestCategoryTagSearchAndArchiveEndpoints(t *testing.T) {
 	engine := newTestEngine(t)
 
@@ -209,6 +229,24 @@ func decodeJSON(t *testing.T, recorder *httptest.ResponseRecorder, target any) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), target); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+}
+
+func decodePostViewCount(t *testing.T, recorder *httptest.ResponseRecorder) int {
+	t.Helper()
+
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			ViewCount int `json:"viewCount"`
+		} `json:"data"`
+	}
+	decodeJSON(t, recorder, &body)
+
+	if body.Code != 0 {
+		t.Fatalf("expected success code, got %d", body.Code)
+	}
+
+	return body.Data.ViewCount
 }
 
 func assertListHasItems(t *testing.T, recorder *httptest.ResponseRecorder) {

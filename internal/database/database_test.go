@@ -1,11 +1,13 @@
 package database
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/model"
 )
 
@@ -37,5 +39,35 @@ func TestSeedDefaultSiteSettingsIsIdempotentAfterAdminUpdates(t *testing.T) {
 	}
 	if settings[0].Value != "后台改过的标题" {
 		t.Fatalf("expected admin-updated title to remain, got %q", settings[0].Value)
+	}
+}
+
+func TestSiteSettingLookupQuotesReservedKeyColumn(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{DryRun: true})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+
+	statement := db.Where(siteSettingLookup("siteTitle")).First(&model.SiteSetting{}).Statement
+	sql := statement.SQL.String()
+	if strings.Contains(sql, "WHERE key =") {
+		t.Fatalf("site setting lookup must not use a bare reserved key column: %s", sql)
+	}
+	if !strings.Contains(sql, "`site_settings`.`key`") {
+		t.Fatalf("site setting lookup should quote the key column, got: %s", sql)
+	}
+}
+
+func TestOpenRejectsUnsupportedDatabaseDriver(t *testing.T) {
+	cfg := config.Default()
+	cfg.Database.Driver = "postgres"
+	cfg.Database.DSN = ":memory:"
+
+	_, err := Open(Options{Config: cfg})
+	if err == nil {
+		t.Fatal("expected unsupported database driver error")
+	}
+	if !strings.Contains(err.Error(), "unsupported database driver") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

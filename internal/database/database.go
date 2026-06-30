@@ -1,13 +1,16 @@
 package database
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"masenyu.top/blog/backend/internal/auth"
 	"masenyu.top/blog/backend/internal/config"
@@ -22,16 +25,29 @@ type Options struct {
 func Open(options Options) (*gorm.DB, error) {
 	dsn := options.DSN
 	if dsn == "" {
-		dsn = "data/blog.db"
+		dsn = options.Config.Database.DSN
+	}
+	if dsn == "" {
+		dsn = config.Default().Database.DSN
 	}
 
-	if shouldCreateParentDir(dsn) {
+	driver := strings.ToLower(strings.TrimSpace(options.Config.Database.Driver))
+	if driver == "" {
+		driver = config.Default().Database.Driver
+	}
+	if driver != "sqlite" && driver != "mysql" {
+		return nil, fmt.Errorf("unsupported database driver %q", driver)
+	}
+
+	if driver == "sqlite" && shouldCreateParentDir(dsn) {
 		if err := os.MkdirAll(filepath.Dir(dsn), 0o755); err != nil {
 			return nil, err
 		}
 	}
 
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(dialector(driver, dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +73,17 @@ func Open(options Options) (*gorm.DB, error) {
 	}
 
 	return db, SeedDefaultBlogContent(db)
+}
+
+func dialector(driver string, dsn string) gorm.Dialector {
+	switch driver {
+	case "sqlite":
+		return sqlite.Open(dsn)
+	case "mysql":
+		return mysql.Open(dsn)
+	default:
+		panic("unsupported database driver was not validated")
+	}
 }
 
 func SeedInitialAdmin(db *gorm.DB, cfg config.Config) error {
@@ -99,12 +126,16 @@ func SeedDefaultSiteSettings(db *gorm.DB) error {
 
 	for key, value := range defaults {
 		setting := model.SiteSetting{Key: key, Value: value}
-		if err := db.Where("key = ?", key).FirstOrCreate(&setting).Error; err != nil {
+		if err := db.Where(siteSettingLookup(key)).FirstOrCreate(&setting).Error; err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func siteSettingLookup(key string) model.SiteSetting {
+	return model.SiteSetting{Key: key}
 }
 
 func shouldCreateParentDir(dsn string) bool {

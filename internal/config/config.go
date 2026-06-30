@@ -21,7 +21,8 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	DSN string `yaml:"dsn"`
+	Driver string `yaml:"driver"`
+	DSN    string `yaml:"dsn"`
 }
 
 type SiteConfig struct {
@@ -48,7 +49,8 @@ func Default() Config {
 			Address: "127.0.0.1:8080",
 		},
 		Database: DatabaseConfig{
-			DSN: "data/blog.db",
+			Driver: "sqlite",
+			DSN:    "data/blog.db",
 		},
 		Site: SiteConfig{
 			SiteTitle:   "马森雨的技术博客",
@@ -109,6 +111,9 @@ func withDefaults(cfg Config) Config {
 	if cfg.Database.DSN == "" {
 		cfg.Database.DSN = defaults.Database.DSN
 	}
+	if cfg.Database.Driver == "" {
+		cfg.Database.Driver = defaults.Database.Driver
+	}
 	if cfg.Site.SiteTitle == "" {
 		cfg.Site.SiteTitle = defaults.Site.SiteTitle
 	}
@@ -146,6 +151,9 @@ func withEnvironmentOverrides(cfg Config) Config {
 	}
 	if value := os.Getenv("BLOG_DATABASE_DSN"); value != "" {
 		cfg.Database.DSN = value
+	}
+	if value := os.Getenv("BLOG_DATABASE_DRIVER"); value != "" {
+		cfg.Database.Driver = value
 	}
 	if value := os.Getenv("BLOG_ADMIN_INITIAL_USERNAME"); value != "" {
 		cfg.Admin.InitialUsername = value

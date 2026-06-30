@@ -107,6 +107,14 @@ func (h BlogHandler) GetPost(c *gin.Context) {
 		return
 	}
 
+	if err := h.db.Model(&model.Post{}).
+		Where("id = ?", post.ID).
+		UpdateColumn("view_count", gorm.Expr("view_count + ?", 1)).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "server error")
+		return
+	}
+	post.ViewCount++
+
 	prev, err := h.adjacentPost("published_at < ?", post.PublishedAt, "published_at desc")
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
