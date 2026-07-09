@@ -59,6 +59,37 @@ func TestPostListEndpointReturnsPublishedPostsWithPagination(t *testing.T) {
 	}
 }
 
+func TestPostListEndpointSupportsSlugFilteringWithoutChangingViewCount(t *testing.T) {
+	engine := newTestEngine(t)
+
+	first := performRequest(engine, http.MethodGet, "/api/posts?slug=nginx-api-proxy&page=1&pageSize=10")
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected first filtered list status 200, got %d with body %s", first.Code, first.Body.String())
+	}
+	firstList := decodePostListSummary(t, first)
+
+	if len(firstList.Data.List) != 1 {
+		t.Fatalf("expected exactly one slug-filtered post, got %d with body %s", len(firstList.Data.List), first.Body.String())
+	}
+	if firstList.Data.List[0].Slug != "nginx-api-proxy" {
+		t.Fatalf("expected slug-filtered post nginx-api-proxy, got %q", firstList.Data.List[0].Slug)
+	}
+
+	second := performRequest(engine, http.MethodGet, "/api/posts?slug=nginx-api-proxy&page=1&pageSize=10")
+	if second.Code != http.StatusOK {
+		t.Fatalf("expected second filtered list status 200, got %d with body %s", second.Code, second.Body.String())
+	}
+	secondList := decodePostListSummary(t, second)
+
+	if secondList.Data.List[0].ViewCount != firstList.Data.List[0].ViewCount {
+		t.Fatalf(
+			"expected slug-filtered list view count to stay %d, got %d",
+			firstList.Data.List[0].ViewCount,
+			secondList.Data.List[0].ViewCount,
+		)
+	}
+}
+
 func TestPostDetailEndpointReturnsMarkdownAndAdjacentPosts(t *testing.T) {
 	engine := newTestEngine(t)
 
@@ -241,6 +272,35 @@ func decodePostViewCount(t *testing.T, recorder *httptest.ResponseRecorder) int 
 	}
 
 	return body.Data.ViewCount
+}
+
+func decodePostListSummary(t *testing.T, recorder *httptest.ResponseRecorder) struct {
+	Code int `json:"code"`
+	Data struct {
+		List []struct {
+			Slug      string `json:"slug"`
+			ViewCount int    `json:"viewCount"`
+		} `json:"list"`
+	} `json:"data"`
+} {
+	t.Helper()
+
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			List []struct {
+				Slug      string `json:"slug"`
+				ViewCount int    `json:"viewCount"`
+			} `json:"list"`
+		} `json:"data"`
+	}
+	decodeJSON(t, recorder, &body)
+
+	if body.Code != 0 {
+		t.Fatalf("expected success code, got %d", body.Code)
+	}
+
+	return body
 }
 
 func assertListHasItems(t *testing.T, recorder *httptest.ResponseRecorder) {

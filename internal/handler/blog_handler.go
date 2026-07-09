@@ -70,6 +70,7 @@ type ArchiveMonth struct {
 }
 
 type postFilters struct {
+	Slug     string
 	Category string
 	Tag      string
 	Query    string
@@ -82,6 +83,7 @@ func NewBlogHandler(db *gorm.DB) BlogHandler {
 func (h BlogHandler) ListPosts(c *gin.Context) {
 	page, pageSize := pagination(c)
 	result, err := h.paginatedPosts(postFilters{
+		Slug:     strings.TrimSpace(c.Query("slug")),
 		Category: strings.TrimSpace(c.Query("category")),
 		Tag:      strings.TrimSpace(c.Query("tag")),
 		Query:    strings.TrimSpace(c.Query("q")),
@@ -300,6 +302,10 @@ func (h BlogHandler) paginatedPosts(filters postFilters, page int, pageSize int)
 
 func (h BlogHandler) postQuery(filters postFilters) *gorm.DB {
 	query := h.db.Model(&model.Post{}).Where("posts.status = ?", model.PostStatusPublished)
+
+	if filters.Slug != "" {
+		query = query.Where("posts.slug = ?", filters.Slug)
+	}
 
 	if filters.Category != "" {
 		query = query.Joins("JOIN categories ON categories.id = posts.category_id").Where("categories.slug = ?", filters.Category)
