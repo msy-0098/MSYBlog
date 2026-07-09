@@ -6,17 +6,19 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/database"
 	"masenyu.top/blog/backend/internal/router"
 )
 
 func TestSiteEndpointReturnsDefaultSiteProfile(t *testing.T) {
-	cfg := config.Default()
-	db, err := database.Open(database.Options{DSN: testDatabaseDSN(t), Config: cfg})
+	cfg := testDatabaseConfig(t)
+	resetPostgresSchema(t, cfg)
+
+	db, err := database.Open(database.Options{Config: cfg})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
+	trackSQLDatabase(t, db)
 
 	engine := router.New(router.Dependencies{
 		Config:   cfg,

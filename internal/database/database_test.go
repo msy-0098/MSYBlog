@@ -1,10 +1,11 @@
 package database
 
 import (
+	"os"
 	"strings"
 	"testing"
 
-	"github.com/glebarez/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"masenyu.top/blog/backend/internal/config"
@@ -12,10 +13,7 @@ import (
 )
 
 func TestSeedDefaultSiteSettingsIsIdempotentAfterAdminUpdates(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open database: %v", err)
-	}
+	db := testPostgresDatabase(t)
 	if err := db.AutoMigrate(&model.SiteSetting{}); err != nil {
 		t.Fatalf("migrate settings: %v", err)
 	}
@@ -42,8 +40,11 @@ func TestSeedDefaultSiteSettingsIsIdempotentAfterAdminUpdates(t *testing.T) {
 	}
 }
 
-func TestSiteSettingLookupQuotesReservedKeyColumn(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{DryRun: true})
+func TestSiteSettingLookupUsesPostgresQuotedKeyColumn(t *testing.T) {
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=127.0.0.1 user=blog_user password=test dbname=blog_test port=5432 sslmode=disable TimeZone=Asia/Shanghai",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
@@ -53,21 +54,59 @@ func TestSiteSettingLookupQuotesReservedKeyColumn(t *testing.T) {
 	if strings.Contains(sql, "WHERE key =") {
 		t.Fatalf("site setting lookup must not use a bare reserved key column: %s", sql)
 	}
-	if !strings.Contains(sql, "`site_settings`.`key`") {
+	if !strings.Contains(sql, `"site_settings"."key"`) {
 		t.Fatalf("site setting lookup should quote the key column, got: %s", sql)
 	}
 }
 
-func TestOpenRejectsUnsupportedDatabaseDriver(t *testing.T) {
-	cfg := config.Default()
-	cfg.Database.Driver = "postgres"
-	cfg.Database.DSN = ":memory:"
+func TestOpenRejectsLegacyDatabaseDrivers(t *testing.T) {
+	for _, driver := range []string{"sqlite", "mysql"} {
+		t.Run(driver, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Database.Driver = driver
+			cfg.Database.DSN = "unused"
 
-	_, err := Open(Options{Config: cfg})
-	if err == nil {
-		t.Fatal("expected unsupported database driver error")
+			_, err := Open(Options{Config: cfg})
+			if err == nil {
+				t.Fatal("expected unsupported database driver error")
+			}
+			if !strings.Contains(err.Error(), "unsupported database driver") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
-	if !strings.Contains(err.Error(), "unsupported database driver") {
-		t.Fatalf("unexpected error: %v", err)
+}
+
+func testPostgresDatabase(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	dsn := os.Getenv("BLOG_TEST_DATABASE_DSN")
+	if dsn == "" {
+		t.Skip("BLOG_TEST_DATABASE_DSN is required for PostgreSQL database integration tests")
 	}
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open postgres test database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	if err := db.Exec("SELECT pg_advisory_lock(?)", int64(81220260709)).Error; err != nil {
+		t.Fatalf("lock postgres test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Exec("SELECT pg_advisory_unlock(?)", int64(81220260709)).Error
+	})
+
+	if err := db.Exec("DROP TABLE IF EXISTS site_settings CASCADE").Error; err != nil {
+		t.Fatalf("drop test tables: %v", err)
+	}
+
+	return db
 }

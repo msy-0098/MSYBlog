@@ -2,7 +2,8 @@ server:
   address: 127.0.0.1:8080
 
 database:
-  dsn: data/blog.db
+  driver: postgres
+  dsn: "host=127.0.0.1 user=blog_user password=replace-with-password dbname=blog port=5432 sslmode=disable TimeZone=Asia/Shanghai"
 
 site:
   siteTitle: 马森雨的技术博客
@@ -16,4 +17,3 @@ site:
     - 分类
     - 项目
     - 关于
-

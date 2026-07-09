@@ -10,8 +10,8 @@ import (
 
 func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	t.Setenv("BLOG_SERVER_ADDRESS", "127.0.0.1:18080")
-	t.Setenv("BLOG_DATABASE_DRIVER", "mysql")
-	t.Setenv("BLOG_DATABASE_DSN", "file::memory:?cache=shared")
+	t.Setenv("BLOG_DATABASE_DRIVER", "postgres")
+	t.Setenv("BLOG_DATABASE_DSN", "host=127.0.0.1 user=blog_test password=test dbname=blog_test port=5432 sslmode=disable TimeZone=Asia/Shanghai")
 	t.Setenv("BLOG_SMTP_HOST", "smtp.qq.com")
 	t.Setenv("BLOG_SMTP_PORT", "587")
 	t.Setenv("BLOG_SMTP_USERNAME", "reader@example.com")
@@ -29,10 +29,10 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	if cfg.Server.Address != "127.0.0.1:18080" {
 		t.Fatalf("expected env server address, got %q", cfg.Server.Address)
 	}
-	if cfg.Database.DSN != "file::memory:?cache=shared" {
+	if cfg.Database.DSN != "host=127.0.0.1 user=blog_test password=test dbname=blog_test port=5432 sslmode=disable TimeZone=Asia/Shanghai" {
 		t.Fatalf("expected env database dsn, got %q", cfg.Database.DSN)
 	}
-	if cfg.Database.Driver != "mysql" {
+	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("expected env database driver, got %q", cfg.Database.Driver)
 	}
 	if cfg.Mail.SMTPHost != "smtp.qq.com" || cfg.Mail.Username != "reader@example.com" || cfg.Mail.Password != "smtp-password" {
@@ -43,11 +43,11 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 }
 
-func TestDefaultDatabaseDriverIsSQLite(t *testing.T) {
+func TestDefaultDatabaseDriverIsPostgres(t *testing.T) {
 	cfg := config.Default()
 
-	if cfg.Database.Driver != "sqlite" {
-		t.Fatalf("expected sqlite default driver, got %q", cfg.Database.Driver)
+	if cfg.Database.Driver != "postgres" {
+		t.Fatalf("expected postgres default driver, got %q", cfg.Database.Driver)
 	}
 }
 
@@ -78,16 +78,16 @@ func TestLoadRejectsDefaultAdminPasswordInReleaseMode(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsSQLiteDatabaseInReleaseMode(t *testing.T) {
+func TestLoadRejectsNonPostgresDatabaseInReleaseMode(t *testing.T) {
 	t.Setenv("GIN_MODE", "release")
 	t.Setenv("BLOG_JWT_SECRET", "release-test-secret")
 	t.Setenv("BLOG_ADMIN_INITIAL_PASSWORD", "release-admin-password")
-	t.Setenv("BLOG_DATABASE_DRIVER", "sqlite")
-	t.Setenv("BLOG_DATABASE_DSN", "data/blog.db")
+	t.Setenv("BLOG_DATABASE_DRIVER", "mysql")
+	t.Setenv("BLOG_DATABASE_DSN", "blog_user:replace-with-password@tcp(127.0.0.1:3306)/blog?charset=utf8mb4&parseTime=True&loc=Local")
 
 	_, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
 	if err == nil {
-		t.Fatal("expected release config with sqlite database to fail")
+		t.Fatal("expected release config with non-postgres database to fail")
 	}
 
 	if !strings.Contains(err.Error(), "BLOG_DATABASE_DRIVER") {

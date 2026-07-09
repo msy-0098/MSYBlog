@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestProjectTechStackColumnUsesMySQLCompatibleDefault(t *testing.T) {
+func TestProjectTechStackColumnUsesPortableDefault(t *testing.T) {
 	field, ok := reflect.TypeOf(Project{}).FieldByName("TechStack")
 	if !ok {
 		t.Fatal("Project.TechStack field is missing")

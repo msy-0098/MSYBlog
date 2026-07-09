@@ -61,14 +61,14 @@ func TestVisitorRegistrationLoginAndCommentFlow(t *testing.T) {
 		t.Fatal("expected visitor login token")
 	}
 
-	comment := performJSONRequest(engine, http.MethodPost, "/api/posts/go-gin-sqlite-blog/comments", map[string]string{
+	comment := performJSONRequest(engine, http.MethodPost, "/api/posts/go-gin-postgresql-blog/comments", map[string]string{
 		"content": "这篇文章的部署思路很清楚呀",
 	}, loginBody.Data.Token)
 	if comment.Code != http.StatusOK {
 		t.Fatalf("expected comment create status 200, got %d with body %s", comment.Code, comment.Body.String())
 	}
 
-	comments := performRequest(engine, http.MethodGet, "/api/posts/go-gin-sqlite-blog/comments")
+	comments := performRequest(engine, http.MethodGet, "/api/posts/go-gin-postgresql-blog/comments")
 	if comments.Code != http.StatusOK {
 		t.Fatalf("expected comments list status 200, got %d with body %s", comments.Code, comments.Body.String())
 	}
@@ -97,7 +97,7 @@ func TestVisitorRegistrationLoginAndCommentFlow(t *testing.T) {
 func TestVisitorCommentRequiresLogin(t *testing.T) {
 	engine := newAdminAuthTestEngine(t)
 
-	comment := performJSONRequest(engine, http.MethodPost, "/api/posts/go-gin-sqlite-blog/comments", map[string]string{
+	comment := performJSONRequest(engine, http.MethodPost, "/api/posts/go-gin-postgresql-blog/comments", map[string]string{
 		"content": "未登录不应该评论",
 	}, "")
 	if comment.Code != http.StatusUnauthorized {
@@ -162,7 +162,7 @@ func TestAdminDashboardAndCommentManagement(t *testing.T) {
 	}
 	decodeJSON(t, register, &registerBody)
 
-	createComment := performJSONRequest(engine, http.MethodPost, "/api/posts/go-gin-sqlite-blog/comments", map[string]string{
+	createComment := performJSONRequest(engine, http.MethodPost, "/api/posts/go-gin-postgresql-blog/comments", map[string]string{
 		"content": "后台统计需要看到这条评论",
 	}, registerBody.Data.Token)
 	if createComment.Code != http.StatusOK {
@@ -224,7 +224,7 @@ func TestAdminDashboardAndCommentManagement(t *testing.T) {
 		t.Fatalf("expected hide comment status 200, got %d with body %s", hideComment.Code, hideComment.Body.String())
 	}
 
-	publicComments := performRequest(engine, http.MethodGet, "/api/posts/go-gin-sqlite-blog/comments")
+	publicComments := performRequest(engine, http.MethodGet, "/api/posts/go-gin-postgresql-blog/comments")
 	if publicComments.Code != http.StatusOK {
 		t.Fatalf("expected public comments status 200, got %d with body %s", publicComments.Code, publicComments.Body.String())
 	}

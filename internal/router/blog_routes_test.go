@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/database"
 	"masenyu.top/blog/backend/internal/router"
 )
@@ -63,7 +62,7 @@ func TestPostListEndpointReturnsPublishedPostsWithPagination(t *testing.T) {
 func TestPostDetailEndpointReturnsMarkdownAndAdjacentPosts(t *testing.T) {
 	engine := newTestEngine(t)
 
-	recorder := performRequest(engine, http.MethodGet, "/api/posts/go-gin-sqlite-blog")
+	recorder := performRequest(engine, http.MethodGet, "/api/posts/go-gin-postgresql-blog")
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d with body %s", recorder.Code, recorder.Body.String())
@@ -86,7 +85,7 @@ func TestPostDetailEndpointReturnsMarkdownAndAdjacentPosts(t *testing.T) {
 
 	decodeJSON(t, recorder, &body)
 
-	if body.Data.Slug != "go-gin-sqlite-blog" {
+	if body.Data.Slug != "go-gin-postgresql-blog" {
 		t.Fatalf("unexpected slug %q", body.Data.Slug)
 	}
 	if body.Data.Content == "" {
@@ -100,13 +99,13 @@ func TestPostDetailEndpointReturnsMarkdownAndAdjacentPosts(t *testing.T) {
 func TestPostDetailEndpointIncrementsViewCount(t *testing.T) {
 	engine := newTestEngine(t)
 
-	first := performRequest(engine, http.MethodGet, "/api/posts/go-gin-sqlite-blog")
+	first := performRequest(engine, http.MethodGet, "/api/posts/go-gin-postgresql-blog")
 	if first.Code != http.StatusOK {
 		t.Fatalf("expected first detail status 200, got %d with body %s", first.Code, first.Body.String())
 	}
 	firstCount := decodePostViewCount(t, first)
 
-	second := performRequest(engine, http.MethodGet, "/api/posts/go-gin-sqlite-blog")
+	second := performRequest(engine, http.MethodGet, "/api/posts/go-gin-postgresql-blog")
 	if second.Code != http.StatusOK {
 		t.Fatalf("expected second detail status 200, got %d with body %s", second.Code, second.Body.String())
 	}
@@ -144,7 +143,7 @@ func TestCategoryTagSearchAndArchiveEndpoints(t *testing.T) {
 	}
 	assertListHasItems(t, tagPosts)
 
-	search := performRequest(engine, http.MethodGet, "/api/search?q=SQLite")
+	search := performRequest(engine, http.MethodGet, "/api/search?q=PostgreSQL")
 	if search.Code != http.StatusOK {
 		t.Fatalf("expected search status 200, got %d", search.Code)
 	}
@@ -193,20 +192,15 @@ func newTestEngine(t *testing.T) http.Handler {
 func newTestEngineWithDatabase(t *testing.T) (http.Handler, interface{ Close() error }) {
 	t.Helper()
 
-	cfg, err := config.Load("__missing_test_config__.yaml")
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+	cfg := testDatabaseConfig(t)
+	resetPostgresSchema(t, cfg)
 
-	db, err := database.Open(database.Options{DSN: testDatabaseDSN(t), Config: cfg})
+	db, err := database.Open(database.Options{Config: cfg})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
 
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get sql database: %v", err)
-	}
+	sqlDB := trackSQLDatabase(t, db)
 
 	return router.New(router.Dependencies{
 		Config:   cfg,

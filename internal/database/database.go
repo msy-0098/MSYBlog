@@ -2,13 +2,10 @@ package database
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/glebarez/sqlite"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
@@ -35,14 +32,11 @@ func Open(options Options) (*gorm.DB, error) {
 	if driver == "" {
 		driver = config.Default().Database.Driver
 	}
-	if driver != "sqlite" && driver != "mysql" {
-		return nil, fmt.Errorf("unsupported database driver %q", driver)
+	if driver == "postgresql" {
+		driver = "postgres"
 	}
-
-	if driver == "sqlite" && shouldCreateParentDir(dsn) {
-		if err := os.MkdirAll(filepath.Dir(dsn), 0o755); err != nil {
-			return nil, err
-		}
+	if driver != "postgres" {
+		return nil, fmt.Errorf("unsupported database driver %q", driver)
 	}
 
 	db, err := gorm.Open(dialector(driver, dsn), &gorm.Config{
@@ -79,10 +73,8 @@ func Open(options Options) (*gorm.DB, error) {
 
 func dialector(driver string, dsn string) gorm.Dialector {
 	switch driver {
-	case "sqlite":
-		return sqlite.Open(dsn)
-	case "mysql":
-		return mysql.Open(dsn)
+	case "postgres":
+		return postgres.Open(dsn)
 	default:
 		panic("unsupported database driver was not validated")
 	}
@@ -151,14 +143,6 @@ func siteSettingLookup(key string) model.SiteSetting {
 	return model.SiteSetting{Key: key}
 }
 
-func shouldCreateParentDir(dsn string) bool {
-	if dsn == ":memory:" || strings.HasPrefix(dsn, "file:") {
-		return false
-	}
-
-	return filepath.Dir(dsn) != "."
-}
-
 type seedPost struct {
 	Title       string
 	Slug        string
@@ -185,7 +169,7 @@ func SeedDefaultBlogContent(db *gorm.DB) error {
 
 	tags := []model.Tag{
 		{Name: "后端", Slug: "backend"},
-		{Name: "SQLite", Slug: "sqlite"},
+		{Name: "PostgreSQL", Slug: "postgres"},
 		{Name: "前端", Slug: "frontend"},
 		{Name: "性能", Slug: "performance"},
 		{Name: "Nginx", Slug: "nginx"},
@@ -198,17 +182,17 @@ func SeedDefaultBlogContent(db *gorm.DB) error {
 
 	posts := []seedPost{
 		{
-			Title:    "用 Go 和 SQLite 搭建轻量博客",
-			Slug:     "go-gin-sqlite-blog",
-			Summary:  "从 Gin 路由、GORM 模型到 SQLite 持久化，梳理个人博客后端的最小闭环。",
+			Title:    "用 Go 和 PostgreSQL 搭建长期博客",
+			Slug:     "go-gin-postgresql-blog",
+			Summary:  "从 Gin 路由、GORM 模型到 PostgreSQL 持久化，梳理个人博客后端的长期维护路径。",
 			Cover:    "",
 			Category: "go",
-			Tags:     []string{"backend", "sqlite"},
-			Content: strings.TrimSpace(`# 用 Go 和 SQLite 搭建轻量博客
+			Tags:     []string{"backend", "postgres"},
+			Content: strings.TrimSpace(`# 用 Go 和 PostgreSQL 搭建长期博客
 
-## 为什么选择轻量架构
+## 为什么选择 PostgreSQL
 
-个人博客的第一目标是稳定可维护。Go 服务负责公开阅读接口，SQLite 承担文章、分类和标签的持久化，部署成本很低。
+个人博客的第一目标是稳定可维护。Go 服务负责公开阅读接口，PostgreSQL 承担文章、分类、标签和评论的持久化，后续扩展搜索、统计和 JSON 数据也更从容。
 
 ## 数据模型
 
@@ -223,7 +207,7 @@ type Post struct {
 
 ## 下一步
 
-继续补齐后台发布能力，让内容维护可以完全在线完成。`),
+继续完善备份、监控和后台发布能力，让内容维护可以长期稳定在线完成。`),
 			ViewCount:   128,
 			PublishedAt: time.Date(2026, 6, 24, 9, 30, 0, 0, time.UTC),
 		},

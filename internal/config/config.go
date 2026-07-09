@@ -65,8 +65,8 @@ func Default() Config {
 			Address: "127.0.0.1:8080",
 		},
 		Database: DatabaseConfig{
-			Driver: "sqlite",
-			DSN:    "data/blog.db",
+			Driver: "postgres",
+			DSN:    "host=127.0.0.1 user=blog_user password=replace-with-password dbname=blog port=5432 sslmode=disable TimeZone=Asia/Shanghai",
 		},
 		Site: SiteConfig{
 			SiteTitle:   "马森雨的技术博客",
@@ -120,8 +120,8 @@ func finalize(cfg Config) (Config, error) {
 		if cfg.Admin.InitialPassword == defaults.Admin.InitialPassword {
 			return Config{}, fmt.Errorf("BLOG_ADMIN_INITIAL_PASSWORD must be configured in release mode")
 		}
-		if cfg.Database.Driver != "mysql" {
-			return Config{}, fmt.Errorf("BLOG_DATABASE_DRIVER must be mysql in release mode")
+		if cfg.Database.Driver != "postgres" {
+			return Config{}, fmt.Errorf("BLOG_DATABASE_DRIVER must be postgres in release mode")
 		}
 	}
 
