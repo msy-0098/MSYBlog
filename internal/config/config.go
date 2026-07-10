@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -114,18 +115,52 @@ func Load(path string) (Config, error) {
 func finalize(cfg Config) (Config, error) {
 	if os.Getenv("GIN_MODE") == "release" {
 		defaults := Default()
-		if cfg.Auth.JWTSecret == defaults.Auth.JWTSecret {
+		if cfg.Auth.JWTSecret == defaults.Auth.JWTSecret || isPlaceholder(cfg.Auth.JWTSecret) {
 			return Config{}, fmt.Errorf("BLOG_JWT_SECRET must be configured in release mode")
 		}
-		if cfg.Admin.InitialPassword == defaults.Admin.InitialPassword {
+		if cfg.Admin.InitialPassword == defaults.Admin.InitialPassword || isPlaceholder(cfg.Admin.InitialPassword) {
 			return Config{}, fmt.Errorf("BLOG_ADMIN_INITIAL_PASSWORD must be configured in release mode")
+		}
+		if isPlaceholder(cfg.Admin.InitialUsername) {
+			return Config{}, fmt.Errorf("BLOG_ADMIN_INITIAL_USERNAME must be configured in release mode")
 		}
 		if cfg.Database.Driver != "postgres" {
 			return Config{}, fmt.Errorf("BLOG_DATABASE_DRIVER must be postgres in release mode")
 		}
+		if isPlaceholder(cfg.Database.DSN) {
+			return Config{}, fmt.Errorf("BLOG_DATABASE_DSN must be configured in release mode")
+		}
+		for _, required := range []struct {
+			name  string
+			value string
+		}{
+			{name: "BLOG_SMTP_HOST", value: cfg.Mail.SMTPHost},
+			{name: "BLOG_SMTP_USERNAME", value: cfg.Mail.Username},
+			{name: "BLOG_SMTP_PASSWORD", value: cfg.Mail.Password},
+			{name: "BLOG_SMTP_FROM", value: cfg.Mail.From},
+		} {
+			if isPlaceholder(required.value) {
+				return Config{}, fmt.Errorf("%s must be configured in release mode", required.name)
+			}
+		}
 	}
 
 	return cfg, nil
+}
+
+func isPlaceholder(value string) bool {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return true
+	}
+
+	for _, marker := range []string{"replace-with-", "local-development-", "your-", "<", ">"} {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func withDefaults(cfg Config) Config {

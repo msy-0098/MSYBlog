@@ -94,3 +94,63 @@ func TestLoadRejectsNonPostgresDatabaseInReleaseMode(t *testing.T) {
 		t.Fatalf("expected error to mention BLOG_DATABASE_DRIVER, got %q", err.Error())
 	}
 }
+
+func TestLoadRejectsPlaceholderDatabaseDSNInReleaseMode(t *testing.T) {
+	setValidReleaseEnvironment(t)
+	t.Setenv("BLOG_DATABASE_DSN", "host=127.0.0.1 user=blog_user password=replace-with-postgres-password dbname=blog port=5432 sslmode=disable")
+
+	_, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
+	if err == nil {
+		t.Fatal("expected release config with placeholder database DSN to fail")
+	}
+
+	if !strings.Contains(err.Error(), "BLOG_DATABASE_DSN") {
+		t.Fatalf("expected error to mention BLOG_DATABASE_DSN, got %q", err.Error())
+	}
+}
+
+func TestLoadRejectsPlaceholderAdminUsernameInReleaseMode(t *testing.T) {
+	setValidReleaseEnvironment(t)
+	t.Setenv("BLOG_ADMIN_INITIAL_USERNAME", "replace-with-admin-username")
+
+	_, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
+	if err == nil {
+		t.Fatal("expected release config with placeholder admin username to fail")
+	}
+
+	if !strings.Contains(err.Error(), "BLOG_ADMIN_INITIAL_USERNAME") {
+		t.Fatalf("expected error to mention BLOG_ADMIN_INITIAL_USERNAME, got %q", err.Error())
+	}
+}
+
+func TestLoadRequiresSMTPConfigurationInReleaseMode(t *testing.T) {
+	setValidReleaseEnvironment(t)
+	t.Setenv("BLOG_SMTP_HOST", "")
+	t.Setenv("BLOG_SMTP_USERNAME", "")
+	t.Setenv("BLOG_SMTP_PASSWORD", "")
+	t.Setenv("BLOG_SMTP_FROM", "")
+
+	_, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
+	if err == nil {
+		t.Fatal("expected release config without SMTP settings to fail")
+	}
+
+	if !strings.Contains(err.Error(), "BLOG_SMTP") {
+		t.Fatalf("expected error to mention BLOG_SMTP, got %q", err.Error())
+	}
+}
+
+func setValidReleaseEnvironment(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("GIN_MODE", "release")
+	t.Setenv("BLOG_JWT_SECRET", "release-test-secret")
+	t.Setenv("BLOG_ADMIN_INITIAL_USERNAME", "admin@example.test")
+	t.Setenv("BLOG_ADMIN_INITIAL_PASSWORD", "release-admin-password")
+	t.Setenv("BLOG_DATABASE_DRIVER", "postgres")
+	t.Setenv("BLOG_DATABASE_DSN", "host=127.0.0.1 user=blog_user password=test-password dbname=blog port=5432 sslmode=disable")
+	t.Setenv("BLOG_SMTP_HOST", "smtp.example.test")
+	t.Setenv("BLOG_SMTP_USERNAME", "mailer@example.test")
+	t.Setenv("BLOG_SMTP_PASSWORD", "smtp-test-password")
+	t.Setenv("BLOG_SMTP_FROM", "mailer@example.test")
+}
