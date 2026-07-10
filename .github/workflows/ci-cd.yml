@@ -57,13 +57,14 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
             go build -trimpath -ldflags="-s -w" \
             -o blog-server ./cmd/server
+          gzip -9 blog-server
 
       - name: Upload backend artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/upload-artifact@v4
         with:
           name: blog-server
-          path: blog-server
+          path: blog-server.gz
           if-no-files-found: error
 
   deploy:
@@ -97,17 +98,20 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           RELEASE_ID: ${{ github.sha }}
         run: |
+          SSH_OPTIONS="-o IdentitiesOnly=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=12"
+          REMOTE_ARCHIVE="/tmp/blog-server-${RELEASE_ID}.gz"
           REMOTE_BINARY="/tmp/blog-server-${RELEASE_ID}"
 
-          scp -P "${DEPLOY_PORT}" -o IdentitiesOnly=yes \
-            deploy/blog-server \
-            "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_BINARY}"
+          scp -P "${DEPLOY_PORT}" ${SSH_OPTIONS} \
+            deploy/blog-server.gz \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_ARCHIVE}"
 
-          ssh -p "${DEPLOY_PORT}" -o IdentitiesOnly=yes \
+          ssh -p "${DEPLOY_PORT}" ${SSH_OPTIONS} \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "chmod +x ${REMOTE_BINARY} && \
+            "gzip -dc ${REMOTE_ARCHIVE} > ${REMOTE_BINARY} && \
+             chmod +x ${REMOTE_BINARY} && \
              sudo -n install -o ubuntu -g ubuntu -m 0755 ${REMOTE_BINARY} /home/ubuntu/blog/backend/blog-server && \
-             rm -f ${REMOTE_BINARY} && \
+             rm -f ${REMOTE_ARCHIVE} ${REMOTE_BINARY} && \
              sudo -n systemctl restart blog.service && \
              sudo -n systemctl is-active --quiet blog.service"
 
