@@ -1,0 +1,123 @@
+name: Backend CI/CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-production
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Test and Build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: blog_test
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: blog_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U blog_test -d blog_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      BLOG_TEST_DATABASE_DSN: host=127.0.0.1 user=blog_test password=test-password dbname=blog_test port=5432 sslmode=disable TimeZone=Asia/Shanghai
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build Linux binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags="-s -w" \
+            -o blog-server ./cmd/server
+
+      - name: Upload backend artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: blog-server
+          path: blog-server
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy Backend
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Download backend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: blog-server
+          path: deploy
+
+      - name: Prepare SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Upload and restart backend
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          RELEASE_ID: ${{ github.sha }}
+        run: |
+          SSH_OPTIONS="-p ${DEPLOY_PORT} -o IdentitiesOnly=yes"
+          REMOTE_BINARY="/tmp/blog-server-${RELEASE_ID}"
+
+          scp ${SSH_OPTIONS} \
+            deploy/blog-server \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_BINARY}"
+
+          ssh ${SSH_OPTIONS} "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "chmod +x ${REMOTE_BINARY} && \
+             sudo -n install -o ubuntu -g ubuntu -m 0755 ${REMOTE_BINARY} /home/ubuntu/blog/backend/blog-server && \
+             rm -f ${REMOTE_BINARY} && \
+             sudo -n systemctl restart blog.service && \
+             sudo -n systemctl is-active --quiet blog.service"
+
+      - name: Health check
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -p "$DEPLOY_PORT" \
+            -o IdentitiesOnly=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "curl --fail --silent --show-error http://127.0.0.1:8080/api/site"
