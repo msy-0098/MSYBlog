@@ -97,14 +97,14 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           RELEASE_ID: ${{ github.sha }}
         run: |
-          SSH_OPTIONS="-p ${DEPLOY_PORT} -o IdentitiesOnly=yes"
           REMOTE_BINARY="/tmp/blog-server-${RELEASE_ID}"
 
-          scp ${SSH_OPTIONS} \
+          scp -P "${DEPLOY_PORT}" -o IdentitiesOnly=yes \
             deploy/blog-server \
             "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_BINARY}"
 
-          ssh ${SSH_OPTIONS} "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          ssh -p "${DEPLOY_PORT}" -o IdentitiesOnly=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
             "chmod +x ${REMOTE_BINARY} && \
              sudo -n install -o ubuntu -g ubuntu -m 0755 ${REMOTE_BINARY} /home/ubuntu/blog/backend/blog-server && \
              rm -f ${REMOTE_BINARY} && \
