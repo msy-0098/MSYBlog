@@ -25,8 +25,12 @@ type LoginRequest struct {
 }
 
 type AdminUserDTO struct {
-	ID       uint   `json:"id"`
-	Username string `json:"username"`
+	ID        uint   `json:"id"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	Nickname  string `json:"nickname"`
+	Role      string `json:"role"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type LoginResponse struct {
@@ -76,12 +80,14 @@ func (h AdminAuthHandler) Profile(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, AdminUserDTO{
-		ID:       claims.UserID,
-		Username: claims.Username,
-	})
+	var user model.User
+	if err := h.db.First(&user, claims.UserID).Error; err != nil {
+		response.Error(c, http.StatusUnauthorized, 401, "用户不存在或 token 已失效")
+		return
+	}
+	response.Success(c, adminUserDTO(user))
 }
 
 func adminUserDTO(user model.User) AdminUserDTO {
-	return AdminUserDTO{ID: user.ID, Username: user.Username}
+	return AdminUserDTO{ID: user.ID, Username: user.Username, Email: user.Email, Nickname: user.Nickname, Role: user.Role, CreatedAt: formatTime(user.CreatedAt)}
 }

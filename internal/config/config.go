@@ -58,6 +58,7 @@ type AIConfig struct {
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
 	APIKey   string `yaml:"apiKey"`
+	BaseURL  string `yaml:"baseURL"`
 }
 
 func Default() Config {
@@ -88,8 +89,9 @@ func Default() Config {
 			SMTPPort: "587",
 		},
 		AI: AIConfig{
-			Provider: "local",
-			Model:    "local-blog-analyst",
+			Provider: "deepseek",
+			Model:    "deepseek-chat",
+			BaseURL:  "https://api.deepseek.com",
 		},
 	}
 }
@@ -211,6 +213,9 @@ func withDefaults(cfg Config) Config {
 	if cfg.AI.Model == "" {
 		cfg.AI.Model = defaults.AI.Model
 	}
+	if cfg.AI.BaseURL == "" {
+		cfg.AI.BaseURL = defaults.AI.BaseURL
+	}
 
 	return cfg
 }
@@ -257,6 +262,9 @@ func withEnvironmentOverrides(cfg Config) Config {
 	}
 	if value := os.Getenv("BLOG_AI_API_KEY"); value != "" {
 		cfg.AI.APIKey = value
+	}
+	if value := os.Getenv("BLOG_AI_BASE_URL"); value != "" {
+		cfg.AI.BaseURL = value
 	}
 
 	return cfg

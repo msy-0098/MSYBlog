@@ -87,6 +87,8 @@ func resetPostgresSchema(t *testing.T, cfg config.Config) {
 			projects,
 			uploads,
 			email_verification_codes,
+			access_logs,
+			ip_bans,
 			users,
 			site_settings
 		CASCADE

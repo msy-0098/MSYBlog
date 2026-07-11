@@ -11,12 +11,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
 )
 
 type AdminContentHandler struct {
-	db *gorm.DB
+	db  *gorm.DB
+	cfg config.Config
 }
 
 type TaxonomyRequest struct {
@@ -74,8 +76,8 @@ type ProjectDTO struct {
 	Visible     bool     `json:"visible"`
 }
 
-func NewAdminContentHandler(db *gorm.DB) AdminContentHandler {
-	return AdminContentHandler{db: db}
+func NewAdminContentHandler(db *gorm.DB, cfg config.Config) AdminContentHandler {
+	return AdminContentHandler{db: db, cfg: cfg}
 }
 
 func (h AdminContentHandler) ListAdminPosts(c *gin.Context) {
@@ -444,7 +446,7 @@ func (h AdminContentHandler) DeleteProject(c *gin.Context) {
 }
 
 func (h AdminContentHandler) GetSettings(c *gin.Context) {
-	response.Success(c, h.readSettings())
+	response.Success(c, h.effectiveSettings())
 }
 
 func (h AdminContentHandler) UpdateSettings(c *gin.Context) {
@@ -478,7 +480,26 @@ func (h AdminContentHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, h.readSettings())
+	response.Success(c, h.effectiveSettings())
+}
+
+func (h AdminContentHandler) effectiveSettings() map[string]string {
+	settings := map[string]string{
+		"siteTitle":    h.cfg.Site.SiteTitle,
+		"subtitle":     h.cfg.Site.Subtitle,
+		"owner":        h.cfg.Site.Owner,
+		"domain":       h.cfg.Site.Domain,
+		"description":  h.cfg.Site.Description,
+		"navItems":     strings.Join(h.cfg.Site.NavItems, ","),
+		"aiProvider":   h.cfg.AI.Provider,
+		"aiModel":      h.cfg.AI.Model,
+		"aiBaseURL":    h.cfg.AI.BaseURL,
+		"aiConfigured": strconv.FormatBool(strings.TrimSpace(h.cfg.AI.APIKey) != ""),
+	}
+	for key, value := range h.readSettings() {
+		settings[key] = value
+	}
+	return settings
 }
 
 func (h AdminContentHandler) postFromRequest(req AdminPostRequest, post model.Post) (model.Post, error) {

@@ -20,6 +20,7 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	t.Setenv("BLOG_AI_PROVIDER", "openai-compatible")
 	t.Setenv("BLOG_AI_MODEL", "analysis-model")
 	t.Setenv("BLOG_AI_API_KEY", "analysis-key")
+	t.Setenv("BLOG_AI_BASE_URL", "https://api.deepseek.com")
 
 	cfg, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
 	if err != nil {
@@ -38,7 +39,7 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	if cfg.Mail.SMTPHost != "smtp.qq.com" || cfg.Mail.Username != "reader@example.com" || cfg.Mail.Password != "smtp-password" {
 		t.Fatalf("expected SMTP env overrides, got %#v", cfg.Mail)
 	}
-	if cfg.AI.Provider != "openai-compatible" || cfg.AI.Model != "analysis-model" || cfg.AI.APIKey != "analysis-key" {
+	if cfg.AI.Provider != "openai-compatible" || cfg.AI.Model != "analysis-model" || cfg.AI.APIKey != "analysis-key" || cfg.AI.BaseURL != "https://api.deepseek.com" {
 		t.Fatalf("expected AI env overrides, got %#v", cfg.AI)
 	}
 }

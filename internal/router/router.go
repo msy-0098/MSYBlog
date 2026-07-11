@@ -21,7 +21,7 @@ func New(deps Dependencies) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.New()
-	engine.Use(gin.Logger(), gin.Recovery())
+	engine.Use(gin.Logger(), gin.Recovery(), middleware.NewAccessTracker(deps.Database).Middleware())
 	engine.Static("/uploads", "uploads")
 
 	siteHandler := handler.NewSiteHandler(deps.Database, deps.Config)
@@ -29,8 +29,9 @@ func New(deps Dependencies) *gin.Engine {
 	commentHandler := handler.NewCommentHandler(deps.Database)
 	visitorAuthHandler := handler.NewVisitorAuthHandler(deps.Database, deps.Config)
 	adminAuthHandler := handler.NewAdminAuthHandler(deps.Database, deps.Config.Auth.JWTSecret)
-	adminContentHandler := handler.NewAdminContentHandler(deps.Database)
+	adminContentHandler := handler.NewAdminContentHandler(deps.Database, deps.Config)
 	adminDashboardHandler := handler.NewAdminDashboardHandler(deps.Database, deps.Config)
+	adminInsightHandler := handler.NewAdminInsightHandler(deps.Database, deps.Config)
 
 	api := engine.Group("/api")
 	api.GET("/site", siteHandler.GetSite)
@@ -56,6 +57,13 @@ func New(deps Dependencies) *gin.Engine {
 	admin := api.Group("/admin", middleware.RequireAdmin(deps.Config.Auth.JWTSecret))
 	admin.GET("/profile", adminAuthHandler.Profile)
 	admin.GET("/dashboard", adminDashboardHandler.GetDashboard)
+	admin.GET("/analytics", adminInsightHandler.GetAnalytics)
+	admin.GET("/users", adminInsightHandler.ListUsers)
+	admin.GET("/ip-bans", adminInsightHandler.ListBans)
+	admin.POST("/ip-bans", adminInsightHandler.CreateBan)
+	admin.DELETE("/ip-bans/:id", adminInsightHandler.RemoveBan)
+	admin.POST("/ai/chat", adminInsightHandler.Chat)
+	admin.POST("/ai/beautify", adminInsightHandler.Beautify)
 	admin.GET("/comments", commentHandler.ListAdminComments)
 	admin.PUT("/comments/:id", commentHandler.UpdateAdminComment)
 	admin.DELETE("/comments/:id", commentHandler.DeleteAdminComment)

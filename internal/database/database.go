@@ -56,6 +56,8 @@ func Open(options Options) (*gorm.DB, error) {
 		&model.Comment{},
 		&model.Project{},
 		&model.Upload{},
+		&model.AccessLog{},
+		&model.IPBan{},
 	); err != nil {
 		return nil, err
 	}
