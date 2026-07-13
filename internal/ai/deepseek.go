@@ -156,7 +156,9 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, callback fu
 	request.Header.Set("Authorization", "Bearer "+c.apiKey)
 	request.Header.Set("Content-Type", "application/json")
 
-	response, err := c.httpClient.Do(request)
+	streamHTTPClient := *c.httpClient
+	streamHTTPClient.Timeout = 0
+	response, err := streamHTTPClient.Do(request)
 	if err != nil {
 		return err
 	}
@@ -201,7 +203,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, callback fu
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	return nil
+	return fmt.Errorf("deepseek stream ended before [DONE]: %w", io.ErrUnexpectedEOF)
 }
 
 func streamRequestError(response *http.Response) error {

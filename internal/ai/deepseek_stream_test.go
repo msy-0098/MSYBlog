@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -190,5 +191,69 @@ func TestClientStreamChatCallsCallbackForAllChoiceDeltasInOrder(t *testing.T) {
 	}
 	if got.String() != "甲乙" {
 		t.Fatalf("unexpected streamed deltas %q", got.String())
+	}
+}
+
+func TestClientStreamChatIgnoresHTTPClientTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(30 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	httpClient := server.Client()
+	httpClient.Timeout = time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	client := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: httpClient})
+	var got strings.Builder
+	err := client.StreamChat(ctx, []Message{{Role: "user", Content: "hi"}}, func(delta string) error {
+		got.WriteString(delta)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream chat returned error: %v", err)
+	}
+	if got.String() != "hello" {
+		t.Fatalf("unexpected streamed delta %q", got.String())
+	}
+}
+
+func TestClientStreamChatRejectsEOFBeforeDone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	var got strings.Builder
+	err := client.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, func(delta string) error {
+		got.WriteString(delta)
+		return nil
+	})
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("expected unexpected EOF error, got %v", err)
+	}
+	if got.String() != "hello" {
+		t.Fatalf("unexpected streamed delta %q", got.String())
+	}
+}
+
+func TestClientStreamChatReturnsScannerErrorForOversizedDataLine(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: " + strings.Repeat("a", (2<<20)+1) + "\n\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	err := client.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, func(string) error {
+		t.Fatal("callback must not be called for an oversized data line")
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "token too long") {
+		t.Fatalf("expected scanner token-too-long error, got %v", err)
 	}
 }
