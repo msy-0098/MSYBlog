@@ -43,10 +43,15 @@ var _ ChatClient = (*Client)(nil)
 
 const streamChatTimeout = 5 * time.Minute
 
+type thinkingConfig struct {
+	Type string `json:"type"`
+}
+
 type chatRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Stream   bool      `json:"stream"`
+	Model    string          `json:"model"`
+	Messages []Message       `json:"messages"`
+	Stream   bool            `json:"stream"`
+	Thinking *thinkingConfig `json:"thinking,omitempty"`
 }
 
 type chatResponse struct {
@@ -154,7 +159,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, callback fu
 	streamCtx, cancel := streamContext(ctx)
 	defer cancel()
 
-	payload, err := json.Marshal(chatRequest{Model: c.model, Messages: messages, Stream: true})
+	payload, err := json.Marshal(chatRequest{Model: c.model, Messages: messages, Stream: true, Thinking: &thinkingConfig{Type: "disabled"}})
 	if err != nil {
 		return err
 	}

@@ -327,3 +327,27 @@ func TestClientStreamChatDeliversFirstDeltaBeforeServerCompletes(t *testing.T) {
 		t.Fatalf("unexpected streamed deltas %q", got.String())
 	}
 }
+
+func TestClientStreamChatDisablesThinkingInRequest(t *testing.T) {
+	var request struct {
+		Thinking struct {
+			Type string `json:"type"`
+		} `json:"thinking"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	if err := client.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, func(string) error { return nil }); err != nil {
+		t.Fatalf("stream chat returned error: %v", err)
+	}
+	if request.Thinking.Type != "disabled" {
+		t.Fatalf("unexpected thinking request config: %#v", request.Thinking)
+	}
+}
