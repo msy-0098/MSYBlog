@@ -171,3 +171,24 @@ func TestClientStreamChatStopsWhenRequestContextIsCanceled(t *testing.T) {
 		t.Fatal("server request context was not canceled")
 	}
 }
+
+func TestClientStreamChatCallsCallbackForAllChoiceDeltasInOrder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"甲\"}},{\"delta\":{\"content\":\"乙\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	var got strings.Builder
+	err := client.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, func(delta string) error {
+		got.WriteString(delta)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream chat returned error: %v", err)
+	}
+	if got.String() != "甲乙" {
+		t.Fatalf("unexpected streamed deltas %q", got.String())
+	}
+}

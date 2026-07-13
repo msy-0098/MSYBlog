@@ -189,11 +189,13 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, callback fu
 		if chunk.Error != nil && chunk.Error.Message != "" {
 			return fmt.Errorf("deepseek stream failed: %s", chunk.Error.Message)
 		}
-		if len(chunk.Choices) == 0 || chunk.Choices[0].Delta.Content == "" {
-			continue
-		}
-		if err := callback(chunk.Choices[0].Delta.Content); err != nil {
-			return err
+		for _, choice := range chunk.Choices {
+			if choice.Delta.Content == "" {
+				continue
+			}
+			if err := callback(choice.Delta.Content); err != nil {
+				return err
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
