@@ -13,14 +13,13 @@ import (
 	"gorm.io/gorm"
 
 	"masenyu.top/blog/backend/internal/ai"
-	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
 )
 
 type AdminInsightHandler struct {
 	db       *gorm.DB
-	aiClient *ai.Client
+	aiClient ai.ChatClient
 	model    string
 }
 
@@ -93,12 +92,8 @@ type BeautifyResponse struct {
 	Content string `json:"content"`
 }
 
-func NewAdminInsightHandler(db *gorm.DB, cfg config.Config) AdminInsightHandler {
-	return AdminInsightHandler{db: db, model: cfg.AI.Model, aiClient: ai.NewClient(ai.Config{
-		APIKey:  cfg.AI.APIKey,
-		Model:   cfg.AI.Model,
-		BaseURL: cfg.AI.BaseURL,
-	})}
+func NewAdminInsightHandler(db *gorm.DB, aiClient ai.ChatClient, modelName string) AdminInsightHandler {
+	return AdminInsightHandler{db: db, aiClient: aiClient, model: modelName}
 }
 
 func (h AdminInsightHandler) ListUsers(c *gin.Context) {
@@ -129,6 +124,49 @@ func (h AdminInsightHandler) GetAnalytics(c *gin.Context) {
 	response.Success(c, analytics)
 }
 
+type AIAnalysisDTO struct {
+	Mode    string   `json:"mode"`
+	Summary string   `json:"summary"`
+	Signals []string `json:"signals"`
+}
+
+func (h AdminInsightHandler) GenerateInsights(c *gin.Context) {
+	if h.aiClient == nil || !h.aiClient.Configured() {
+		response.Error(c, http.StatusServiceUnavailable, 503, "DeepSeek 尚未配置，请在服务器环境变量中设置 BLOG_AI_API_KEY")
+		return
+	}
+	stats, err := (AdminDashboardHandler{db: h.db}).readStats()
+	if err != nil {
+		internalError(c)
+		return
+	}
+	analytics, err := h.readAnalytics()
+	if err != nil {
+		internalError(c)
+		return
+	}
+	payload, err := json.Marshal(struct {
+		Stats     DashboardStatsDTO `json:"stats"`
+		Analytics AnalyticsDTO      `json:"analytics"`
+	}{Stats: stats, Analytics: analytics})
+	if err != nil {
+		internalError(c)
+		return
+	}
+	answer, err := h.aiClient.Chat(c.Request.Context(), []ai.Message{
+		{Role: "system", Content: "你是博客运营分析助手，请用简洁中文给出可执行建议。"},
+		{Role: "user", Content: "请分析以下博客数据并给出一段不超过120字的运营建议：" + string(payload)},
+	})
+	if err != nil {
+		response.Error(c, http.StatusBadGateway, 502, aiErrorMessage(err))
+		return
+	}
+	response.Success(c, AIAnalysisDTO{Mode: "deepseek", Summary: answer, Signals: []string{
+		fmt.Sprintf("累计阅读 %d 次", stats.TotalViews),
+		fmt.Sprintf("今日请求 %d 次，独立 IP %d 个", analytics.TodayRequests, analytics.UniqueIPs),
+		fmt.Sprintf("注册访客 %d 位，评论 %d 条", stats.VisitorCount, stats.CommentCount),
+	}})
+}
 func (h AdminInsightHandler) ListBans(c *gin.Context) {
 	var bans []model.IPBan
 	if err := h.db.Order("created_at desc").Find(&bans).Error; err != nil {

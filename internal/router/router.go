@@ -6,15 +6,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"masenyu.top/blog/backend/internal/ai"
 	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/handler"
 	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/response"
+	"masenyu.top/blog/backend/internal/service"
 )
 
 type Dependencies struct {
 	Config   config.Config
 	Database *gorm.DB
+	AIClient ai.ChatClient
 }
 
 func New(deps Dependencies) *gin.Engine {
@@ -24,20 +27,23 @@ func New(deps Dependencies) *gin.Engine {
 	engine.Use(gin.Logger(), gin.Recovery(), middleware.NewAccessTracker(deps.Database).Middleware())
 	engine.Static("/uploads", "uploads")
 
+	aiClient := deps.AIClient
+	if aiClient == nil {
+		aiClient = ai.NewClient(ai.Config{APIKey: deps.Config.AI.APIKey, Model: deps.Config.AI.Model, BaseURL: deps.Config.AI.BaseURL})
+	}
 	siteHandler := handler.NewSiteHandler(deps.Database, deps.Config)
 	blogHandler := handler.NewBlogHandler(deps.Database)
 	commentHandler := handler.NewCommentHandler(deps.Database)
 	visitorAuthHandler := handler.NewVisitorAuthHandler(deps.Database, deps.Config)
 	adminAuthHandler := handler.NewAdminAuthHandler(deps.Database, deps.Config.Auth.JWTSecret)
 	adminContentHandler := handler.NewAdminContentHandler(deps.Database, deps.Config)
-	adminDashboardHandler := handler.NewAdminDashboardHandler(deps.Database, deps.Config)
-	adminInsightHandler := handler.NewAdminInsightHandler(deps.Database, deps.Config)
+	adminDashboardHandler := handler.NewAdminDashboardHandler(deps.Database)
+	adminInsightHandler := handler.NewAdminInsightHandler(deps.Database, aiClient, deps.Config.AI.Model)
+	adminAIHandler := handler.NewAdminAIHandler(service.NewAIConversationService(deps.Database, aiClient, deps.Config.AI.Model))
 
 	api := engine.Group("/api")
 	api.GET("/site", siteHandler.GetSite)
-	api.GET("/health", func(c *gin.Context) {
-		response.Success(c, gin.H{"status": "ok"})
-	})
+	api.GET("/health", func(c *gin.Context) { response.Success(c, gin.H{"status": "ok"}) })
 	api.GET("/posts", blogHandler.ListPosts)
 	api.GET("/posts/:slug", blogHandler.GetPost)
 	api.GET("/categories", blogHandler.ListCategories)
@@ -62,8 +68,15 @@ func New(deps Dependencies) *gin.Engine {
 	admin.GET("/ip-bans", adminInsightHandler.ListBans)
 	admin.POST("/ip-bans", adminInsightHandler.CreateBan)
 	admin.DELETE("/ip-bans/:id", adminInsightHandler.RemoveBan)
-	admin.POST("/ai/chat", adminInsightHandler.Chat)
+	admin.POST("/ai/insights/generate", adminInsightHandler.GenerateInsights)
 	admin.POST("/ai/beautify", adminInsightHandler.Beautify)
+	admin.GET("/ai/conversations", adminAIHandler.List)
+	admin.POST("/ai/conversations", adminAIHandler.Create)
+	admin.DELETE("/ai/conversations", adminAIHandler.Clear)
+	admin.GET("/ai/conversations/:id", adminAIHandler.Get)
+	admin.PATCH("/ai/conversations/:id", adminAIHandler.Rename)
+	admin.DELETE("/ai/conversations/:id", adminAIHandler.Delete)
+	admin.POST("/ai/conversations/:id/messages/stream", adminAIHandler.StreamMessage)
 	admin.GET("/comments", commentHandler.ListAdminComments)
 	admin.PUT("/comments/:id", commentHandler.UpdateAdminComment)
 	admin.DELETE("/comments/:id", commentHandler.DeleteAdminComment)
@@ -88,9 +101,6 @@ func New(deps Dependencies) *gin.Engine {
 	admin.PUT("/settings", adminContentHandler.UpdateSettings)
 	admin.POST("/upload", adminContentHandler.UploadImage)
 
-	engine.NoRoute(func(c *gin.Context) {
-		response.Error(c, http.StatusNotFound, 404, "资源不存在")
-	})
-
+	engine.NoRoute(func(c *gin.Context) { response.Error(c, http.StatusNotFound, 404, "资源不存在") })
 	return engine
 }
