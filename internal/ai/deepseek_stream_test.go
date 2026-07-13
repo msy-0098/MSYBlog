@@ -257,3 +257,73 @@ func TestClientStreamChatReturnsScannerErrorForOversizedDataLine(t *testing.T) {
 		t.Fatalf("expected scanner token-too-long error, got %v", err)
 	}
 }
+
+func TestStreamContextLimitsBackgroundContextToFiveMinutes(t *testing.T) {
+	before := time.Now()
+	ctx, cancel := streamContext(context.Background())
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected stream context deadline")
+	}
+	if deadline.Before(before.Add(4*time.Minute+59*time.Second)) || deadline.After(before.Add(5*time.Minute+time.Second)) {
+		t.Fatalf("unexpected stream context deadline %v", deadline)
+	}
+}
+
+func TestStreamContextDoesNotExtendShorterCallerDeadline(t *testing.T) {
+	callerDeadline := time.Now().Add(time.Minute)
+	callerCtx, callerCancel := context.WithDeadline(context.Background(), callerDeadline)
+	defer callerCancel()
+	ctx, cancel := streamContext(callerCtx)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected stream context deadline")
+	}
+	if deadline.After(callerDeadline) {
+		t.Fatalf("stream deadline %v extended caller deadline %v", deadline, callerDeadline)
+	}
+}
+
+func TestClientStreamChatDeliversFirstDeltaBeforeServerCompletes(t *testing.T) {
+	firstDeltaDelivered := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n"))
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("response writer does not support flushing")
+			return
+		}
+		flusher.Flush()
+
+		select {
+		case <-firstDeltaDelivered:
+		case <-time.After(time.Second):
+			t.Error("first delta callback did not run before server completion")
+			return
+		}
+
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"second\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	var got strings.Builder
+	err := client.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, func(delta string) error {
+		got.WriteString(delta)
+		if delta == "first" {
+			close(firstDeltaDelivered)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream chat returned error: %v", err)
+	}
+	if got.String() != "firstsecond" {
+		t.Fatalf("unexpected streamed deltas %q", got.String())
+	}
+}

@@ -41,6 +41,8 @@ type Client struct {
 
 var _ ChatClient = (*Client)(nil)
 
+const streamChatTimeout = 5 * time.Minute
+
 type chatRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
@@ -134,6 +136,10 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
 	return strings.TrimSpace(decoded.Choices[0].Message.Content), nil
 }
 
+func streamContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, streamChatTimeout)
+}
+
 func (c *Client) StreamChat(ctx context.Context, messages []Message, callback func(string) error) error {
 	if !c.Configured() {
 		return errors.New("deepseek is not configured")
@@ -145,11 +151,14 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, callback fu
 		return errors.New("stream callback is required")
 	}
 
+	streamCtx, cancel := streamContext(ctx)
+	defer cancel()
+
 	payload, err := json.Marshal(chatRequest{Model: c.model, Messages: messages, Stream: true})
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(streamCtx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
