@@ -54,3 +54,35 @@ func TestAIMessageDefinesRequiredFieldsAndConversationSequenceIndex(t *testing.T
 		}
 	}
 }
+
+func TestAIModelsDefineCascadeRelationships(t *testing.T) {
+	conversationType := reflect.TypeOf(AIConversation{})
+	creatorField, ok := conversationType.FieldByName("Creator")
+	if !ok {
+		t.Fatal("AIConversation.Creator association is missing")
+	}
+	if creatorField.Type != reflect.TypeOf(User{}) {
+		t.Fatalf("AIConversation.Creator must be a User, got %s", creatorField.Type)
+	}
+	creatorTag := creatorField.Tag.Get("gorm")
+	for _, requirement := range []string{"foreignKey:CreatedBy", "OnDelete:CASCADE"} {
+		if !strings.Contains(creatorTag, requirement) {
+			t.Fatalf("AIConversation.Creator tag must contain %q, got %q", requirement, creatorTag)
+		}
+	}
+
+	messageType := reflect.TypeOf(AIMessage{})
+	conversationField, ok := messageType.FieldByName("Conversation")
+	if !ok {
+		t.Fatal("AIMessage.Conversation association is missing")
+	}
+	if conversationField.Type != reflect.TypeOf(AIConversation{}) {
+		t.Fatalf("AIMessage.Conversation must be an AIConversation, got %s", conversationField.Type)
+	}
+	conversationTag := conversationField.Tag.Get("gorm")
+	for _, requirement := range []string{"foreignKey:ConversationID", "OnDelete:CASCADE"} {
+		if !strings.Contains(conversationTag, requirement) {
+			t.Fatalf("AIMessage.Conversation tag must contain %q, got %q", requirement, conversationTag)
+		}
+	}
+}

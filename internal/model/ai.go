@@ -20,6 +20,7 @@ type AIConversation struct {
 	Title         string     `gorm:"size:255;not null"`
 	TitleMode     string     `gorm:"size:20;not null;default:'auto'"`
 	CreatedBy     uint       `gorm:"index;not null"`
+	Creator       User       `gorm:"foreignKey:CreatedBy;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	Model         string     `gorm:"size:120;not null"`
 	MessageCount  int        `gorm:"not null;default:0"`
 	LastMessageAt *time.Time `gorm:"index"`
@@ -28,14 +29,15 @@ type AIConversation struct {
 }
 
 type AIMessage struct {
-	ID             uint   `gorm:"primaryKey"`
-	ConversationID uint   `gorm:"not null;index;uniqueIndex:idx_ai_message_sequence"`
-	Role           string `gorm:"size:20;not null"`
-	Content        string `gorm:"type:text;not null"`
-	Status         string `gorm:"size:20;not null"`
-	Sequence       int    `gorm:"not null;uniqueIndex:idx_ai_message_sequence"`
-	Model          string `gorm:"size:120"`
-	ErrorMessage   string `gorm:"type:text"`
+	ID             uint           `gorm:"primaryKey"`
+	ConversationID uint           `gorm:"not null;index;uniqueIndex:idx_ai_message_sequence"`
+	Conversation   AIConversation `gorm:"foreignKey:ConversationID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Role           string         `gorm:"size:20;not null"`
+	Content        string         `gorm:"type:text;not null"`
+	Status         string         `gorm:"size:20;not null"`
+	Sequence       int            `gorm:"not null;uniqueIndex:idx_ai_message_sequence"`
+	Model          string         `gorm:"size:120"`
+	ErrorMessage   string         `gorm:"type:text"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

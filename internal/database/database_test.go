@@ -2,6 +2,7 @@ package database
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -63,10 +64,12 @@ func TestAutoMigrateEnforcesAIMessageConversationSequenceUniqueness(t *testing.T
 	if err := AutoMigrate(db); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
+	creator := createTestAIUser(t, db)
+
 	conversation := model.AIConversation{
 		Title:     "new conversation",
 		TitleMode: model.AIConversationTitleModeAuto,
-		CreatedBy: 1,
+		CreatedBy: creator.ID,
 		Model:     "deepseek-chat",
 	}
 	if err := db.Create(&conversation).Error; err != nil {
@@ -206,4 +209,159 @@ func testPostgresDatabase(t *testing.T) *gorm.DB {
 	}
 
 	return db
+}
+
+func TestModelsRegistryMigratesEveryExpectedTable(t *testing.T) {
+	db := testPostgresDatabase(t)
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+
+	expected := []struct {
+		name  string
+		model any
+	}{
+		{name: "site settings", model: &model.SiteSetting{}},
+		{name: "users", model: &model.User{}},
+		{name: "email verification codes", model: &model.EmailVerificationCode{}},
+		{name: "categories", model: &model.Category{}},
+		{name: "tags", model: &model.Tag{}},
+		{name: "posts", model: &model.Post{}},
+		{name: "comments", model: &model.Comment{}},
+		{name: "projects", model: &model.Project{}},
+		{name: "uploads", model: &model.Upload{}},
+		{name: "access logs", model: &model.AccessLog{}},
+		{name: "IP bans", model: &model.IPBan{}},
+		{name: "AI conversations", model: &model.AIConversation{}},
+		{name: "AI messages", model: &model.AIMessage{}},
+	}
+	registered := Models()
+
+	for _, tt := range expected {
+		t.Run(tt.name, func(t *testing.T) {
+			registeredModel := false
+			for _, candidate := range registered {
+				if reflect.TypeOf(candidate) == reflect.TypeOf(tt.model) {
+					registeredModel = true
+					break
+				}
+			}
+			if !registeredModel {
+				t.Fatalf("Models() is missing %T", tt.model)
+			}
+			if !db.Migrator().HasTable(tt.model) {
+				t.Fatalf("AutoMigrate did not create the table for %T", tt.model)
+			}
+		})
+	}
+}
+
+func TestAutoMigrateEnforcesAIConversationForeignKeysAndCascades(t *testing.T) {
+	db := testPostgresDatabase(t)
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	if err := db.Create(&model.AIConversation{
+		Title:     "orphaned creator",
+		TitleMode: model.AIConversationTitleModeAuto,
+		CreatedBy: 999999,
+		Model:     "deepseek-chat",
+	}).Error; err == nil {
+		t.Fatal("expected conversation with a missing creator to fail")
+	}
+	if err := db.Create(&model.AIMessage{
+		ConversationID: 999999,
+		Role:           model.AIMessageRoleUser,
+		Content:        "orphaned conversation",
+		Status:         model.AIMessageStatusCompleted,
+		Sequence:       1,
+	}).Error; err == nil {
+		t.Fatal("expected message with a missing conversation to fail")
+	}
+
+	creator := createTestAIUser(t, db)
+	conversation := model.AIConversation{
+		Title:     "cascade conversation",
+		TitleMode: model.AIConversationTitleModeAuto,
+		CreatedBy: creator.ID,
+		Model:     "deepseek-chat",
+	}
+	if err := db.Create(&conversation).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	message := model.AIMessage{
+		ConversationID: conversation.ID,
+		Role:           model.AIMessageRoleUser,
+		Content:        "cascade message",
+		Status:         model.AIMessageStatusCompleted,
+		Sequence:       1,
+	}
+	if err := db.Create(&message).Error; err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+	if err := db.Delete(&conversation).Error; err != nil {
+		t.Fatalf("delete conversation: %v", err)
+	}
+	var messageCount int64
+	if err := db.Model(&model.AIMessage{}).Where("conversation_id = ?", conversation.ID).Count(&messageCount).Error; err != nil {
+		t.Fatalf("count deleted conversation messages: %v", err)
+	}
+	if messageCount != 0 {
+		t.Fatalf("deleting a conversation must delete its messages, got %d", messageCount)
+	}
+
+	conversation = model.AIConversation{
+		Title:     "creator cascade conversation",
+		TitleMode: model.AIConversationTitleModeAuto,
+		CreatedBy: creator.ID,
+		Model:     "deepseek-chat",
+	}
+	if err := db.Create(&conversation).Error; err != nil {
+		t.Fatalf("create conversation for creator cascade: %v", err)
+	}
+	message = model.AIMessage{
+		ConversationID: conversation.ID,
+		Role:           model.AIMessageRoleAssistant,
+		Content:        "creator cascade message",
+		Status:         model.AIMessageStatusCompleted,
+		Sequence:       1,
+	}
+	if err := db.Create(&message).Error; err != nil {
+		t.Fatalf("create message for creator cascade: %v", err)
+	}
+	if err := db.Delete(&creator).Error; err != nil {
+		t.Fatalf("delete creator: %v", err)
+	}
+
+	var conversationCount int64
+	if err := db.Model(&model.AIConversation{}).Where("created_by = ?", creator.ID).Count(&conversationCount).Error; err != nil {
+		t.Fatalf("count deleted creator conversations: %v", err)
+	}
+	if conversationCount != 0 {
+		t.Fatalf("deleting a creator must delete conversations, got %d", conversationCount)
+	}
+	if err := db.Model(&model.AIMessage{}).Where("conversation_id = ?", conversation.ID).Count(&messageCount).Error; err != nil {
+		t.Fatalf("count deleted creator messages: %v", err)
+	}
+	if messageCount != 0 {
+		t.Fatalf("deleting a creator must delete messages through conversations, got %d", messageCount)
+	}
+}
+
+func createTestAIUser(t *testing.T, db *gorm.DB) model.User {
+	t.Helper()
+
+	user := model.User{
+		Username:     "ai-foreign-key-test-user",
+		Email:        "ai-foreign-key-test@example.test",
+		Nickname:     "AI Test User",
+		Role:         model.UserRoleAdmin,
+		PasswordHash: "test-password-hash",
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create AI test user: %v", err)
+	}
+	return user
 }
