@@ -79,6 +79,8 @@ func resetPostgresSchema(t *testing.T, cfg config.Config) {
 
 	if err := db.Exec(`
 		DROP TABLE IF EXISTS
+			ai_messages,
+			ai_conversations,
 			post_tags,
 			comments,
 			posts,

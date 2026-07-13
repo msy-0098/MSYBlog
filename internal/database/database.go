@@ -46,31 +46,14 @@ func Open(options Options) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if err := db.AutoMigrate(
-		&model.SiteSetting{},
-		&model.User{},
-		&model.EmailVerificationCode{},
-		&model.Category{},
-		&model.Tag{},
-		&model.Post{},
-		&model.Comment{},
-		&model.Project{},
-		&model.Upload{},
-		&model.AccessLog{},
-		&model.IPBan{},
-	); err != nil {
+	if err := AutoMigrate(db); err != nil {
+		return nil, err
+	}
+	if err := SeedDefaults(db, options.Config); err != nil {
 		return nil, err
 	}
 
-	if err := SeedInitialAdmin(db, options.Config); err != nil {
-		return nil, err
-	}
-
-	if err := SeedDefaultSiteSettings(db); err != nil {
-		return nil, err
-	}
-
-	return db, SeedDefaultBlogContent(db)
+	return db, nil
 }
 
 func dialector(driver string, dsn string) gorm.Dialector {

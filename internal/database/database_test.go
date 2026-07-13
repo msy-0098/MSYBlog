@@ -12,6 +12,86 @@ import (
 	"masenyu.top/blog/backend/internal/model"
 )
 
+func TestAutoMigrateCreatesOnlySchemaIncludingAIModels(t *testing.T) {
+	db := testPostgresDatabase(t)
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	if !db.Migrator().HasTable(&model.AIConversation{}) {
+		t.Fatal("AutoMigrate must create ai_conversations")
+	}
+	if !db.Migrator().HasTable(&model.AIMessage{}) {
+		t.Fatal("AutoMigrate must create ai_messages")
+	}
+
+	for _, table := range []any{&model.User{}, &model.SiteSetting{}, &model.Post{}} {
+		var count int64
+		if err := db.Model(table).Count(&count).Error; err != nil {
+			t.Fatalf("count %T rows: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("AutoMigrate must not seed %T rows, got %d", table, count)
+		}
+	}
+}
+
+func TestSeedDefaultsWritesDataAfterSchema(t *testing.T) {
+	db := testPostgresDatabase(t)
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	if err := SeedDefaults(db, config.Default()); err != nil {
+		t.Fatalf("seed defaults: %v", err)
+	}
+
+	for _, table := range []any{&model.User{}, &model.SiteSetting{}, &model.Post{}} {
+		var count int64
+		if err := db.Model(table).Count(&count).Error; err != nil {
+			t.Fatalf("count %T rows: %v", table, err)
+		}
+		if count == 0 {
+			t.Fatalf("SeedDefaults must write %T rows after schema migration", table)
+		}
+	}
+}
+
+func TestAutoMigrateEnforcesAIMessageConversationSequenceUniqueness(t *testing.T) {
+	db := testPostgresDatabase(t)
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	conversation := model.AIConversation{
+		Title:     "new conversation",
+		TitleMode: model.AIConversationTitleModeAuto,
+		CreatedBy: 1,
+		Model:     "deepseek-chat",
+	}
+	if err := db.Create(&conversation).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := db.Create(&model.AIMessage{
+		ConversationID: conversation.ID,
+		Role:           model.AIMessageRoleUser,
+		Content:        "hi",
+		Status:         model.AIMessageStatusCompleted,
+		Sequence:       1,
+	}).Error; err != nil {
+		t.Fatalf("create first message: %v", err)
+	}
+	if err := db.Create(&model.AIMessage{
+		ConversationID: conversation.ID,
+		Role:           model.AIMessageRoleAssistant,
+		Content:        "duplicate",
+		Status:         model.AIMessageStatusCompleted,
+		Sequence:       1,
+	}).Error; err == nil {
+		t.Fatal("expected duplicate conversation sequence to fail")
+	}
+}
+
 func TestSeedDefaultSiteSettingsIsIdempotentAfterAdminUpdates(t *testing.T) {
 	db := testPostgresDatabase(t)
 	if err := db.AutoMigrate(&model.SiteSetting{}); err != nil {
@@ -104,7 +184,24 @@ func testPostgresDatabase(t *testing.T) *gorm.DB {
 		_ = db.Exec("SELECT pg_advisory_unlock(?)", int64(81220260709)).Error
 	})
 
-	if err := db.Exec("DROP TABLE IF EXISTS site_settings CASCADE").Error; err != nil {
+	if err := db.Exec(`
+		DROP TABLE IF EXISTS
+			ai_messages,
+			ai_conversations,
+			post_tags,
+			comments,
+			posts,
+			categories,
+			tags,
+			projects,
+			uploads,
+			email_verification_codes,
+			access_logs,
+			ip_bans,
+			users,
+			site_settings
+		CASCADE
+	`).Error; err != nil {
 		t.Fatalf("drop test tables: %v", err)
 	}
 
