@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -27,19 +29,29 @@ var (
 	ErrConversationTitleRequired   = errors.New("conversation title is required")
 	ErrStreamCallbackRequired      = errors.New("stream callback is required")
 	ErrAIClientUnavailable         = errors.New("AI client is not configured")
+	ErrStreamResultDiscarded       = errors.New("AI stream result was discarded")
 )
 
 type AIConversationService struct {
 	db       *gorm.DB
 	aiClient ai.ChatClient
 	model    string
+
+	streamMu      sync.Mutex
+	activeStreams map[activeStreamKey]map[uint64]context.CancelFunc
+	nextStreamID  uint64
+}
+
+type activeStreamKey struct {
+	adminID        uint
+	conversationID uint
 }
 
 func NewAIConversationService(db *gorm.DB, aiClient ai.ChatClient, modelName string) *AIConversationService {
 	if strings.TrimSpace(modelName) == "" {
 		modelName = defaultAIModel
 	}
-	return &AIConversationService{db: db, aiClient: aiClient, model: modelName}
+	return &AIConversationService{db: db, aiClient: aiClient, model: modelName, activeStreams: make(map[activeStreamKey]map[uint64]context.CancelFunc)}
 }
 
 func (s *AIConversationService) List(ctx context.Context, adminID uint) ([]model.AIConversation, error) {
@@ -98,14 +110,20 @@ func (s *AIConversationService) Delete(ctx context.Context, adminID, conversatio
 	if err != nil {
 		return err
 	}
+	s.cancelConversationStreams(adminID, conversationID)
 	return s.db.WithContext(ctx).Delete(&conversation).Error
 }
 
 func (s *AIConversationService) Clear(ctx context.Context, adminID uint) error {
+	s.cancelAdminStreams(adminID)
 	return s.db.WithContext(ctx).Where("created_by = ?", adminID).Delete(&model.AIConversation{}).Error
 }
 
 func (s *AIConversationService) StreamMessage(ctx context.Context, adminID, conversationID uint, content string, onDelta func(string) error) (model.AIMessage, error) {
+	return s.StreamMessageWithStart(ctx, adminID, conversationID, content, nil, onDelta)
+}
+
+func (s *AIConversationService) StreamMessageWithStart(ctx context.Context, adminID, conversationID uint, content string, onStart func(model.AIMessage) error, onDelta func(string) error) (model.AIMessage, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return model.AIMessage{}, ErrConversationContentRequired
@@ -113,12 +131,14 @@ func (s *AIConversationService) StreamMessage(ctx context.Context, adminID, conv
 	if onDelta == nil {
 		return model.AIMessage{}, ErrStreamCallbackRequired
 	}
+	streamCtx, stop := s.registerActiveStream(ctx, adminID, conversationID)
+	defer stop()
 
 	var conversation model.AIConversation
 	var assistant model.AIMessage
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.db.WithContext(streamCtx).Transaction(func(tx *gorm.DB) error {
 		var err error
-		conversation, err = s.conversationForAdmin(ctx, tx.Clauses(clause.Locking{Strength: "UPDATE"}), adminID, conversationID)
+		conversation, err = s.conversationForAdmin(streamCtx, tx.Clauses(clause.Locking{Strength: "UPDATE"}), adminID, conversationID)
 		if err != nil {
 			return err
 		}
@@ -162,20 +182,25 @@ func (s *AIConversationService) StreamMessage(ctx context.Context, adminID, conv
 	}); err != nil {
 		return model.AIMessage{}, err
 	}
+	if onStart != nil {
+		if err := onStart(assistant); err != nil {
+			return s.finishStream(streamCtx, conversation, assistant, "", model.AIMessageStatusAborted, err)
+		}
+	}
 
-	messages, err := s.contextMessages(ctx, conversation.ID)
+	messages, err := s.contextMessages(streamCtx, conversation.ID)
 	if err != nil {
-		return s.finishStream(ctx, conversation, assistant, "", model.AIMessageStatusFailed, err)
+		return s.finishStream(streamCtx, conversation, assistant, "", model.AIMessageStatusFailed, err)
 	}
 	prompt := append([]ai.Message{{Role: "system", Content: "你是马森雨个人技术博客的管理助手。请使用简洁、准确的中文回答；不确定时明确说明。"}}, messages...)
 
 	if s.aiClient == nil || !s.aiClient.Configured() {
-		return s.finishStream(ctx, conversation, assistant, "", model.AIMessageStatusFailed, ErrAIClientUnavailable)
+		return s.finishStream(streamCtx, conversation, assistant, "", model.AIMessageStatusFailed, ErrAIClientUnavailable)
 	}
 
 	var output strings.Builder
 	var callbackErr error
-	streamErr := s.aiClient.StreamChat(ctx, prompt, func(delta string) error {
+	streamErr := s.aiClient.StreamChat(streamCtx, prompt, func(delta string) error {
 		output.WriteString(delta)
 		if err := onDelta(delta); err != nil {
 			callbackErr = err
@@ -183,15 +208,73 @@ func (s *AIConversationService) StreamMessage(ctx context.Context, adminID, conv
 		}
 		return nil
 	})
+	if streamErr == nil && streamCtx.Err() == nil {
+		return s.finishStream(streamCtx, conversation, assistant, output.String(), model.AIMessageStatusCompleted, nil)
+	}
 	if streamErr == nil {
-		return s.finishStream(ctx, conversation, assistant, output.String(), model.AIMessageStatusCompleted, nil)
+		streamErr = streamCtx.Err()
 	}
-	if callbackErr != nil || errors.Is(streamErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-		return s.finishStream(ctx, conversation, assistant, output.String(), model.AIMessageStatusAborted, streamErr)
+	if callbackErr != nil || errors.Is(streamErr, context.Canceled) || errors.Is(streamCtx.Err(), context.Canceled) {
+		return s.finishStream(streamCtx, conversation, assistant, output.String(), model.AIMessageStatusAborted, streamErr)
 	}
-	return s.finishStream(ctx, conversation, assistant, output.String(), model.AIMessageStatusFailed, streamErr)
+	return s.finishStream(streamCtx, conversation, assistant, output.String(), model.AIMessageStatusFailed, streamErr)
 }
 
+func (s *AIConversationService) registerActiveStream(ctx context.Context, adminID, conversationID uint) (context.Context, func()) {
+	streamCtx, cancel := context.WithCancel(ctx)
+	key := activeStreamKey{adminID: adminID, conversationID: conversationID}
+	streamID := atomic.AddUint64(&s.nextStreamID, 1)
+
+	s.streamMu.Lock()
+	if s.activeStreams[key] == nil {
+		s.activeStreams[key] = make(map[uint64]context.CancelFunc)
+	}
+	s.activeStreams[key][streamID] = cancel
+	s.streamMu.Unlock()
+
+	return streamCtx, func() {
+		cancel()
+		s.streamMu.Lock()
+		defer s.streamMu.Unlock()
+		streams := s.activeStreams[key]
+		if streams == nil {
+			return
+		}
+		delete(streams, streamID)
+		if len(streams) == 0 {
+			delete(s.activeStreams, key)
+		}
+	}
+}
+
+func (s *AIConversationService) cancelConversationStreams(adminID, conversationID uint) {
+	s.cancelStreams(func(key activeStreamKey) bool {
+		return key.adminID == adminID && key.conversationID == conversationID
+	})
+}
+
+func (s *AIConversationService) cancelAdminStreams(adminID uint) {
+	s.cancelStreams(func(key activeStreamKey) bool {
+		return key.adminID == adminID
+	})
+}
+
+func (s *AIConversationService) cancelStreams(matches func(activeStreamKey) bool) {
+	var cancellations []context.CancelFunc
+	s.streamMu.Lock()
+	for key, streams := range s.activeStreams {
+		if !matches(key) {
+			continue
+		}
+		for _, cancel := range streams {
+			cancellations = append(cancellations, cancel)
+		}
+	}
+	s.streamMu.Unlock()
+	for _, cancel := range cancellations {
+		cancel()
+	}
+}
 func (s *AIConversationService) conversationForAdmin(ctx context.Context, db *gorm.DB, adminID, conversationID uint) (model.AIConversation, error) {
 	var conversation model.AIConversation
 	err := db.WithContext(ctx).Where("id = ? AND created_by = ?", conversationID, adminID).First(&conversation).Error
@@ -224,20 +307,34 @@ func (s *AIConversationService) finishStream(ctx context.Context, conversation m
 	if streamErr != nil {
 		updates["error_message"] = streamErr.Error()
 	}
-	if err := s.db.WithContext(context.WithoutCancel(ctx)).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&model.AIMessage{}).Where("id = ?", assistant.ID).Updates(updates).Error; err != nil {
-			return err
-		}
-		return tx.Model(&model.AIConversation{}).Where("id = ?", conversation.ID).Updates(map[string]any{
-			"last_message_at": now,
-			"message_count":   conversation.MessageCount,
-		}).Error
-	}); err != nil {
-		return assistant, fmt.Errorf("persist AI stream result: %w", err)
-	}
 	assistant.Content = content
 	assistant.Status = status
 	assistant.ErrorMessage = updates["error_message"].(string)
+	if err := s.db.WithContext(context.WithoutCancel(ctx)).Transaction(func(tx *gorm.DB) error {
+		messageResult := tx.Model(&model.AIMessage{}).Where("id = ?", assistant.ID).Updates(updates)
+		if messageResult.Error != nil {
+			return messageResult.Error
+		}
+		if messageResult.RowsAffected != 1 {
+			return ErrStreamResultDiscarded
+		}
+		conversationResult := tx.Model(&model.AIConversation{}).Where("id = ?", conversation.ID).Updates(map[string]any{
+			"last_message_at": now,
+			"message_count":   conversation.MessageCount,
+		})
+		if conversationResult.Error != nil {
+			return conversationResult.Error
+		}
+		if conversationResult.RowsAffected != 1 {
+			return ErrStreamResultDiscarded
+		}
+		return nil
+	}); err != nil {
+		if errors.Is(err, ErrStreamResultDiscarded) {
+			return assistant, err
+		}
+		return assistant, fmt.Errorf("persist AI stream result: %w", err)
+	}
 	if streamErr != nil {
 		return assistant, streamErr
 	}

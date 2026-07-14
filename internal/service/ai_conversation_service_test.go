@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -43,7 +45,28 @@ func (f *fakeChatClient) StreamChat(_ context.Context, messages []ai.Message, ca
 	return nil
 }
 
-func newAIConversationService(t *testing.T, client *fakeChatClient) (*AIConversationService, *gorm.DB, model.User) {
+type blockingChatClient struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+var _ ai.ChatClient = (*blockingChatClient)(nil)
+
+func (f *blockingChatClient) Configured() bool { return true }
+func (f *blockingChatClient) Chat(context.Context, []ai.Message) (string, error) {
+	return "", errors.New("not implemented")
+}
+func (f *blockingChatClient) StreamChat(ctx context.Context, _ []ai.Message, _ func(string) error) error {
+	f.started <- struct{}{}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-f.release:
+		return nil
+	}
+}
+
+func newAIConversationService(t *testing.T, client ai.ChatClient) (*AIConversationService, *gorm.DB, model.User) {
 	t.Helper()
 	db := testServiceDatabase(t)
 	admin := model.User{Username: fmt.Sprintf("service-admin-%s", t.Name()), Email: fmt.Sprintf("service-admin-%s@example.test", t.Name()), Role: model.UserRoleAdmin, PasswordHash: "not-used"}
@@ -233,4 +256,184 @@ func latestAssistantMessage(t *testing.T, db *gorm.DB, conversationID uint) mode
 		t.Fatalf("load latest assistant message: %v", err)
 	}
 	return message
+}
+
+func TestConversationServiceDeleteCancelsActiveStream(t *testing.T) {
+	client := &blockingChatClient{started: make(chan struct{}, 1), release: make(chan struct{})}
+	service, _, admin := newAIConversationService(t, client)
+	conversation, err := service.Create(context.Background(), admin.ID)
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+
+	result := make(chan struct {
+		message model.AIMessage
+		err     error
+	}, 1)
+	go func() {
+		message, streamErr := service.StreamMessage(context.Background(), admin.ID, conversation.ID, "delete while streaming", func(string) error { return nil })
+		result <- struct {
+			message model.AIMessage
+			err     error
+		}{message, streamErr}
+	}()
+	awaitStreamStart(t, client.started)
+	if err := service.Delete(context.Background(), admin.ID, conversation.ID); err != nil {
+		t.Fatalf("delete conversation: %v", err)
+	}
+	close(client.release)
+
+	outcome := awaitStreamResult(t, result)
+	if outcome.err == nil || outcome.message.Status == model.AIMessageStatusCompleted {
+		t.Fatalf("deleted stream must not finish successfully, got message=%#v err=%v", outcome.message, outcome.err)
+	}
+}
+
+func TestConversationServiceClearCancelsActiveStreamsForOwner(t *testing.T) {
+	client := &blockingChatClient{started: make(chan struct{}, 1), release: make(chan struct{})}
+	service, _, admin := newAIConversationService(t, client)
+	conversation, err := service.Create(context.Background(), admin.ID)
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+
+	result := make(chan struct {
+		message model.AIMessage
+		err     error
+	}, 1)
+	go func() {
+		message, streamErr := service.StreamMessage(context.Background(), admin.ID, conversation.ID, "clear while streaming", func(string) error { return nil })
+		result <- struct {
+			message model.AIMessage
+			err     error
+		}{message, streamErr}
+	}()
+	awaitStreamStart(t, client.started)
+	if err := service.Clear(context.Background(), admin.ID); err != nil {
+		t.Fatalf("clear conversations: %v", err)
+	}
+	close(client.release)
+
+	outcome := awaitStreamResult(t, result)
+	if outcome.err == nil || outcome.message.Status == model.AIMessageStatusCompleted {
+		t.Fatalf("cleared stream must not finish successfully, got message=%#v err=%v", outcome.message, outcome.err)
+	}
+}
+
+func TestConversationServiceDoesNotReportCompletionAfterConcurrentMessageDeletion(t *testing.T) {
+	client := &blockingChatClient{started: make(chan struct{}, 1), release: make(chan struct{})}
+	service, db, admin := newAIConversationService(t, client)
+	conversation, err := service.Create(context.Background(), admin.ID)
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+
+	result := make(chan struct {
+		message model.AIMessage
+		err     error
+	}, 1)
+	go func() {
+		message, streamErr := service.StreamMessage(context.Background(), admin.ID, conversation.ID, "delete message row", func(string) error { return nil })
+		result <- struct {
+			message model.AIMessage
+			err     error
+		}{message, streamErr}
+	}()
+	awaitStreamStart(t, client.started)
+	if err := db.Where("conversation_id = ?", conversation.ID).Delete(&model.AIMessage{}).Error; err != nil {
+		t.Fatalf("delete streaming messages directly: %v", err)
+	}
+	close(client.release)
+
+	outcome := awaitStreamResult(t, result)
+	if outcome.err == nil || outcome.message.Status == model.AIMessageStatusCompleted {
+		t.Fatalf("missing assistant row must not be reported as completed, got message=%#v err=%v", outcome.message, outcome.err)
+	}
+}
+
+func awaitStreamStart(t *testing.T, started <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for AI stream to start")
+	}
+}
+
+func awaitStreamResult[T any](t *testing.T, result <-chan T) T {
+	t.Helper()
+	select {
+	case value := <-result:
+		return value
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for AI stream result")
+		var zero T
+		return zero
+	}
+}
+
+type activeStreamRegistration struct {
+	adminID        uint
+	conversationID uint
+	ctx            context.Context
+	stop           func()
+}
+
+func TestActiveStreamRegistryCancelsOnlyMatchingOwnerAndConversation(t *testing.T) {
+	service := NewAIConversationService(nil, &fakeChatClient{}, "deepseek-chat")
+	registrations := make(chan activeStreamRegistration, 32)
+	var workers sync.WaitGroup
+	register := func(adminID, conversationID uint, count int) {
+		for range count {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				ctx, stop := service.registerActiveStream(context.Background(), adminID, conversationID)
+				registrations <- activeStreamRegistration{adminID: adminID, conversationID: conversationID, ctx: ctx, stop: stop}
+			}()
+		}
+	}
+	register(1, 11, 16)
+	register(1, 12, 8)
+	register(2, 11, 8)
+	workers.Wait()
+	close(registrations)
+
+	var ownerConversation, ownerOtherConversation, otherOwner []activeStreamRegistration
+	for registration := range registrations {
+		t.Cleanup(registration.stop)
+		switch {
+		case registration.adminID == 1 && registration.conversationID == 11:
+			ownerConversation = append(ownerConversation, registration)
+		case registration.adminID == 1 && registration.conversationID == 12:
+			ownerOtherConversation = append(ownerOtherConversation, registration)
+		default:
+			otherOwner = append(otherOwner, registration)
+		}
+	}
+
+	service.cancelConversationStreams(1, 11)
+	assertContextsCanceled(t, ownerConversation, true)
+	assertContextsCanceled(t, ownerOtherConversation, false)
+	assertContextsCanceled(t, otherOwner, false)
+
+	service.cancelAdminStreams(1)
+	assertContextsCanceled(t, ownerOtherConversation, true)
+	assertContextsCanceled(t, otherOwner, false)
+}
+
+func assertContextsCanceled(t *testing.T, registrations []activeStreamRegistration, wantCanceled bool) {
+	t.Helper()
+	for _, registration := range registrations {
+		select {
+		case <-registration.ctx.Done():
+			if !wantCanceled {
+				t.Fatal("unexpected active stream cancellation")
+			}
+		default:
+			if wantCanceled {
+				t.Fatal("expected active stream cancellation")
+			}
+		}
+	}
 }

@@ -69,6 +69,7 @@ func New(deps Dependencies) *gin.Engine {
 	admin.POST("/ip-bans", adminInsightHandler.CreateBan)
 	admin.DELETE("/ip-bans/:id", adminInsightHandler.RemoveBan)
 	admin.POST("/ai/insights/generate", adminInsightHandler.GenerateInsights)
+	admin.POST("/ai/chat", adminInsightHandler.Chat)
 	admin.POST("/ai/beautify", adminInsightHandler.Beautify)
 	admin.GET("/ai/conversations", adminAIHandler.List)
 	admin.POST("/ai/conversations", adminAIHandler.Create)

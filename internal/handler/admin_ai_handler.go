@@ -28,14 +28,14 @@ type ConversationMessageRequest struct {
 }
 
 type AIConversationDTO struct {
-	ID            uint   `json:"id"`
-	Title         string `json:"title"`
-	TitleMode     string `json:"titleMode"`
-	Model         string `json:"model"`
-	MessageCount  int    `json:"messageCount"`
-	LastMessageAt string `json:"lastMessageAt"`
-	CreatedAt     string `json:"createdAt"`
-	UpdatedAt     string `json:"updatedAt"`
+	ID            uint    `json:"id"`
+	Title         string  `json:"title"`
+	TitleMode     string  `json:"titleMode"`
+	Model         string  `json:"model"`
+	MessageCount  int     `json:"messageCount"`
+	LastMessageAt *string `json:"lastMessageAt"`
+	CreatedAt     string  `json:"createdAt"`
+	UpdatedAt     string  `json:"updatedAt"`
 }
 
 type AIMessageDTO struct {
@@ -47,6 +47,11 @@ type AIMessageDTO struct {
 	Model        string `json:"model"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
 	CreatedAt    string `json:"createdAt"`
+}
+
+type AIConversationDetailDTO struct {
+	AIConversationDTO
+	Messages []AIMessageDTO `json:"messages"`
 }
 
 func NewAdminAIHandler(service *service.AIConversationService) AdminAIHandler {
@@ -67,7 +72,7 @@ func (h AdminAIHandler) List(c *gin.Context) {
 	for _, conversation := range conversations {
 		list = append(list, aiConversationDTO(conversation))
 	}
-	response.Success(c, ListDTO[AIConversationDTO]{List: list})
+	response.Success(c, list)
 }
 
 func (h AdminAIHandler) Create(c *gin.Context) {
@@ -96,7 +101,7 @@ func (h AdminAIHandler) Get(c *gin.Context) {
 	for _, message := range messages {
 		list = append(list, aiMessageDTO(message))
 	}
-	response.Success(c, gin.H{"conversation": aiConversationDTO(conversation), "messages": list})
+	response.Success(c, AIConversationDetailDTO{AIConversationDTO: aiConversationDTO(conversation), Messages: list})
 }
 
 func (h AdminAIHandler) Rename(c *gin.Context) {
@@ -135,7 +140,7 @@ func (h AdminAIHandler) Clear(c *gin.Context) {
 	if !h.respondServiceError(c, h.service.Clear(c.Request.Context(), adminID)) {
 		return
 	}
-	response.Success(c, gin.H{"cleared": true})
+	response.Success(c, gin.H{"deleted": true})
 }
 
 func (h AdminAIHandler) StreamMessage(c *gin.Context) {
@@ -152,17 +157,27 @@ func (h AdminAIHandler) StreamMessage(c *gin.Context) {
 		return
 	}
 	response.PrepareSSE(c)
-	if err := response.WriteSSE(c, "meta", gin.H{"conversationId": id}); err != nil {
-		return
-	}
-	message, err := h.service.StreamMessage(c.Request.Context(), adminID, id, req.Content, func(delta string) error {
-		return response.WriteSSE(c, "delta", gin.H{"content": delta})
+	var message model.AIMessage
+	var messageID uint
+	message, err := h.service.StreamMessageWithStart(c.Request.Context(), adminID, id, req.Content, func(started model.AIMessage) error {
+		messageID = started.ID
+		return response.WriteSSE(c, "meta", gin.H{"conversationId": id, "messageId": messageID, "status": model.AIMessageStatusStreaming})
+	}, func(delta string) error {
+		return response.WriteSSE(c, "delta", gin.H{"messageId": messageID, "content": delta})
 	})
 	if err != nil {
-		_ = response.WriteSSE(c, "error", gin.H{"code": streamErrorCode(err), "message": streamErrorMessage(err), "messageId": message.ID})
+		payload := gin.H{"code": streamErrorCode(err), "message": streamErrorMessage(err), "status": streamErrorStatus(message, err)}
+		if message.ID != 0 {
+			payload["messageId"] = message.ID
+		}
+		_ = response.WriteSSE(c, "error", payload)
 		return
 	}
-	_ = response.WriteSSE(c, "done", gin.H{"message": aiMessageDTO(message)})
+	if message.Status != model.AIMessageStatusCompleted {
+		_ = response.WriteSSE(c, "error", gin.H{"messageId": message.ID, "status": streamErrorStatus(message, err), "code": 502, "message": "AI stream did not complete"})
+		return
+	}
+	_ = response.WriteSSE(c, "done", gin.H{"messageId": message.ID, "status": model.AIMessageStatusCompleted, "message": aiMessageDTO(message)})
 }
 
 func (h AdminAIHandler) respondServiceError(c *gin.Context, err error) bool {
@@ -208,15 +223,25 @@ func adminConversationID(c *gin.Context) (uint, uint, bool) {
 }
 
 func aiConversationDTO(value model.AIConversation) AIConversationDTO {
-	lastMessageAt := ""
+	var lastMessageAt *string
 	if value.LastMessageAt != nil {
-		lastMessageAt = formatTime(*value.LastMessageAt)
+		formatted := formatTime(*value.LastMessageAt)
+		lastMessageAt = &formatted
 	}
 	return AIConversationDTO{ID: value.ID, Title: value.Title, TitleMode: value.TitleMode, Model: value.Model, MessageCount: value.MessageCount, LastMessageAt: lastMessageAt, CreatedAt: formatTime(value.CreatedAt), UpdatedAt: formatTime(value.UpdatedAt)}
 }
 
 func aiMessageDTO(value model.AIMessage) AIMessageDTO {
 	return AIMessageDTO{ID: value.ID, Role: value.Role, Content: value.Content, Status: value.Status, Sequence: value.Sequence, Model: value.Model, ErrorMessage: value.ErrorMessage, CreatedAt: formatTime(value.CreatedAt)}
+}
+func streamErrorStatus(message model.AIMessage, err error) string {
+	if err != nil && (message.Status == "" || message.Status == model.AIMessageStatusCompleted) {
+		return model.AIMessageStatusFailed
+	}
+	if message.Status != "" {
+		return message.Status
+	}
+	return model.AIMessageStatusFailed
 }
 func streamErrorCode(err error) int {
 	if errors.Is(err, service.ErrAIClientUnavailable) {

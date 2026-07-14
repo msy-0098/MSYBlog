@@ -2,14 +2,21 @@ package router_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"gorm.io/gorm"
 
 	"masenyu.top/blog/backend/internal/ai"
+	"masenyu.top/blog/backend/internal/auth"
 	"masenyu.top/blog/backend/internal/database"
+	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/router"
 )
 
@@ -47,6 +54,11 @@ func (f *fakeAdminAIClient) StreamChat(_ context.Context, _ []ai.Message, callba
 }
 
 func newAdminAITestEngine(t *testing.T, client *fakeAdminAIClient) http.Handler {
+	engine, _ := newAdminAITestEngineWithDatabase(t, client)
+	return engine
+}
+
+func newAdminAITestEngineWithDatabase(t *testing.T, client *fakeAdminAIClient) (http.Handler, *gorm.DB) {
 	t.Helper()
 	t.Setenv("BLOG_ADMIN_INITIAL_PASSWORD", "admin-test-password")
 	t.Setenv("BLOG_JWT_SECRET", "admin-test-secret")
@@ -57,7 +69,7 @@ func newAdminAITestEngine(t *testing.T, client *fakeAdminAIClient) http.Handler 
 		t.Fatalf("open database: %v", err)
 	}
 	trackSQLDatabase(t, db)
-	return router.New(router.Dependencies{Config: cfg, Database: db, AIClient: client})
+	return router.New(router.Dependencies{Config: cfg, Database: db, AIClient: client}), db
 }
 
 func TestAdminAIRoutesRequireJWTAndEmitSSE(t *testing.T) {
@@ -118,4 +130,219 @@ func decodeConversationID(t *testing.T, recorder *httptest.ResponseRecorder) uin
 		t.Fatalf("expected created conversation ID, got body %s", recorder.Body.String())
 	}
 	return body.Data.ID
+}
+
+type sseFrame struct {
+	Event string
+	Data  map[string]any
+}
+
+func TestAdminAIConversationPayloadsMatchFrontendContract(t *testing.T) {
+	engine := newAdminAITestEngine(t, &fakeAdminAIClient{configured: true, deltas: []string{"answer"}})
+	token := loginAndGetToken(t, engine)
+
+	created := performJSONRequest(engine, http.MethodPost, "/api/admin/ai/conversations", map[string]any{}, token)
+	id := decodeConversationID(t, created)
+
+	listed := performRequestWithToken(engine, http.MethodGet, "/api/admin/ai/conversations", token)
+	if listed.Code != http.StatusOK {
+		t.Fatalf("list conversations: %d %s", listed.Code, listed.Body.String())
+	}
+	var listEnvelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	decodeJSON(t, listed, &listEnvelope)
+	if !strings.HasPrefix(strings.TrimSpace(string(listEnvelope.Data)), "[") {
+		t.Fatalf("list data must be a direct array, got %s", listEnvelope.Data)
+	}
+	var summaries []struct {
+		ID            uint            `json:"id"`
+		LastMessageAt json.RawMessage `json:"lastMessageAt"`
+	}
+	if err := json.Unmarshal(listEnvelope.Data, &summaries); err != nil {
+		t.Fatalf("decode summaries: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].ID != id || string(summaries[0].LastMessageAt) != "null" {
+		t.Fatalf("unexpected conversation summaries: %s", listEnvelope.Data)
+	}
+
+	detail := performRequestWithToken(engine, http.MethodGet, fmt.Sprintf("/api/admin/ai/conversations/%d", id), token)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("get conversation: %d %s", detail.Code, detail.Body.String())
+	}
+	var detailEnvelope struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	decodeJSON(t, detail, &detailEnvelope)
+	if _, wrapped := detailEnvelope.Data["conversation"]; wrapped {
+		t.Fatalf("detail must expose conversation fields directly, got %s", detail.Body.String())
+	}
+	if rawID, ok := detailEnvelope.Data["id"]; !ok || string(rawID) != fmt.Sprintf("%d", id) {
+		t.Fatalf("detail is missing direct id: %s", detail.Body.String())
+	}
+	if _, ok := detailEnvelope.Data["messages"]; !ok {
+		t.Fatalf("detail is missing messages: %s", detail.Body.String())
+	}
+
+	cleared := performRequestWithToken(engine, http.MethodDelete, "/api/admin/ai/conversations", token)
+	if cleared.Code != http.StatusOK {
+		t.Fatalf("clear conversations: %d %s", cleared.Code, cleared.Body.String())
+	}
+	var clearEnvelope struct {
+		Data map[string]bool `json:"data"`
+	}
+	decodeJSON(t, cleared, &clearEnvelope)
+	if !clearEnvelope.Data["deleted"] {
+		t.Fatalf("clear response must expose deleted=true, got %s", cleared.Body.String())
+	}
+}
+
+func TestAdminAIStreamFramesMatchFrontendContract(t *testing.T) {
+	engine := newAdminAITestEngine(t, &fakeAdminAIClient{configured: true, deltas: []string{"A", "B"}})
+	token := loginAndGetToken(t, engine)
+	id := decodeConversationID(t, performJSONRequest(engine, http.MethodPost, "/api/admin/ai/conversations", map[string]any{}, token))
+
+	streamed := performJSONRequest(engine, http.MethodPost, fmt.Sprintf("/api/admin/ai/conversations/%d/messages/stream", id), map[string]any{"content": "hi"}, token)
+	if streamed.Code != http.StatusOK {
+		t.Fatalf("stream conversation: %d %s", streamed.Code, streamed.Body.String())
+	}
+	if got := strings.Split(streamed.Header().Get("Content-Type"), ";")[0]; got != "text/event-stream" {
+		t.Fatalf("expected SSE content type, got %q", got)
+	}
+	for header, want := range map[string]string{"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"} {
+		if got := streamed.Header().Get(header); got != want {
+			t.Fatalf("%s = %q, want %q", header, got, want)
+		}
+	}
+
+	frames := parseSSEFrames(t, streamed.Body.String())
+	if len(frames) != 4 {
+		t.Fatalf("expected meta, two deltas, and done; got %#v", frames)
+	}
+	meta, firstDelta, secondDelta, done := frames[0], frames[1], frames[2], frames[3]
+	if meta.Event != "meta" || asUint(t, meta.Data["conversationId"]) != id || asUint(t, meta.Data["messageId"]) == 0 || meta.Data["status"] != "streaming" {
+		t.Fatalf("unexpected meta frame: %#v", meta)
+	}
+	messageID := asUint(t, meta.Data["messageId"])
+	for _, frame := range []sseFrame{firstDelta, secondDelta} {
+		if frame.Event != "delta" || asUint(t, frame.Data["messageId"]) != messageID {
+			t.Fatalf("unexpected delta frame: %#v", frame)
+		}
+	}
+	if firstDelta.Data["content"] != "A" || secondDelta.Data["content"] != "B" {
+		t.Fatalf("unexpected delta contents: %#v %#v", firstDelta, secondDelta)
+	}
+	if done.Event != "done" || asUint(t, done.Data["messageId"]) != messageID || done.Data["status"] != "completed" {
+		t.Fatalf("unexpected done frame: %#v", done)
+	}
+	message, ok := done.Data["message"].(map[string]any)
+	if !ok || asUint(t, message["id"]) != messageID || message["status"] != "completed" || message["content"] != "AB" {
+		t.Fatalf("unexpected completed message: %#v", done.Data["message"])
+	}
+}
+
+func TestAdminAIStreamErrorFrameIncludesMessageStatusAndCode(t *testing.T) {
+	engine := newAdminAITestEngine(t, &fakeAdminAIClient{configured: true, streamErr: errors.New("upstream unavailable")})
+	token := loginAndGetToken(t, engine)
+	id := decodeConversationID(t, performJSONRequest(engine, http.MethodPost, "/api/admin/ai/conversations", map[string]any{}, token))
+
+	streamed := performJSONRequest(engine, http.MethodPost, fmt.Sprintf("/api/admin/ai/conversations/%d/messages/stream", id), map[string]any{"content": "hi"}, token)
+	frames := parseSSEFrames(t, streamed.Body.String())
+	if len(frames) != 2 || frames[0].Event != "meta" || frames[1].Event != "error" {
+		t.Fatalf("expected meta and error frames, got %#v", frames)
+	}
+	errorFrame := frames[1]
+	if asUint(t, errorFrame.Data["messageId"]) == 0 || errorFrame.Data["status"] != "failed" || asUint(t, errorFrame.Data["code"]) != 502 {
+		t.Fatalf("error frame omits frontend recovery fields: %#v", errorFrame)
+	}
+	if message, ok := errorFrame.Data["message"].(string); !ok || strings.TrimSpace(message) == "" {
+		t.Fatalf("error frame omits user-facing message: %#v", errorFrame)
+	}
+}
+
+func TestAdminAIConversationEndpointsHideUnknownAndOtherAdminData(t *testing.T) {
+	engine, db := newAdminAITestEngineWithDatabase(t, &fakeAdminAIClient{configured: true, deltas: []string{"answer"}})
+	ownerToken := loginAndGetToken(t, engine)
+	id := decodeConversationID(t, performJSONRequest(engine, http.MethodPost, "/api/admin/ai/conversations", map[string]any{}, ownerToken))
+
+	unknown := performJSONRequest(engine, http.MethodPost, "/api/admin/ai/conversations/999999/messages/stream", map[string]any{"content": "hi"}, ownerToken)
+	if unknown.Code != http.StatusNotFound {
+		t.Fatalf("unknown conversation must be hidden as not found, got %d %s", unknown.Code, unknown.Body.String())
+	}
+
+	other := model.User{Username: fmt.Sprintf("router-ai-other-%s", t.Name()), Email: fmt.Sprintf("router-ai-other-%s@example.test", t.Name()), Role: model.UserRoleAdmin, PasswordHash: "not-used"}
+	if err := db.Create(&other).Error; err != nil {
+		t.Fatalf("create other admin: %v", err)
+	}
+	otherToken, err := auth.GenerateTokenWithRole("admin-test-secret", other.ID, other.Username, other.Role, time.Now())
+	if err != nil {
+		t.Fatalf("create other token: %v", err)
+	}
+	foreignGet := performRequestWithToken(engine, http.MethodGet, fmt.Sprintf("/api/admin/ai/conversations/%d", id), otherToken)
+	if foreignGet.Code != http.StatusNotFound {
+		t.Fatalf("other admin must not read conversation, got %d %s", foreignGet.Code, foreignGet.Body.String())
+	}
+	foreignStream := performJSONRequest(engine, http.MethodPost, fmt.Sprintf("/api/admin/ai/conversations/%d/messages/stream", id), map[string]any{"content": "hi"}, otherToken)
+	if foreignStream.Code != http.StatusNotFound {
+		t.Fatalf("other admin must not stream conversation, got %d %s", foreignStream.Code, foreignStream.Body.String())
+	}
+}
+
+func TestAdminAILegacyChatAndBeautifyRoutesRemainAvailable(t *testing.T) {
+	chatEngine := newAdminAITestEngine(t, &fakeAdminAIClient{configured: true, chatAnswer: "legacy answer"})
+	chatToken := loginAndGetToken(t, chatEngine)
+	chat := performJSONRequest(chatEngine, http.MethodPost, "/api/admin/ai/chat", map[string]any{"messages": []map[string]string{{"role": "user", "content": "hello"}}}, chatToken)
+	if chat.Code != http.StatusOK {
+		t.Fatalf("legacy chat route: %d %s", chat.Code, chat.Body.String())
+	}
+
+	beautifyEngine := newAdminAITestEngine(t, &fakeAdminAIClient{configured: true, chatAnswer: `{"title":"title","summary":"summary","content":"content"}`})
+	beautifyToken := loginAndGetToken(t, beautifyEngine)
+	beautify := performJSONRequest(beautifyEngine, http.MethodPost, "/api/admin/ai/beautify", map[string]any{"title": "old", "summary": "old", "content": "body"}, beautifyToken)
+	if beautify.Code != http.StatusOK {
+		t.Fatalf("beautify compatibility route: %d %s", beautify.Code, beautify.Body.String())
+	}
+}
+
+func performRequestWithToken(handler http.Handler, method, target, token string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, target, nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func parseSSEFrames(t *testing.T, body string) []sseFrame {
+	t.Helper()
+	var frames []sseFrame
+	for _, raw := range strings.Split(strings.TrimSpace(body), "\n\n") {
+		var event string
+		var data json.RawMessage
+		for _, line := range strings.Split(raw, "\n") {
+			switch {
+			case strings.HasPrefix(line, "event: "):
+				event = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: "):
+				data = json.RawMessage(strings.TrimPrefix(line, "data: "))
+			}
+		}
+		if event == "" || len(data) == 0 {
+			t.Fatalf("invalid SSE frame %q in body %q", raw, body)
+		}
+		payload := map[string]any{}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			t.Fatalf("decode SSE data %q: %v", data, err)
+		}
+		frames = append(frames, sseFrame{Event: event, Data: payload})
+	}
+	return frames
+}
+
+func asUint(t *testing.T, value any) uint {
+	t.Helper()
+	number, ok := value.(float64)
+	if !ok || number <= 0 || number != float64(uint(number)) {
+		t.Fatalf("expected positive integral number, got %#v", value)
+	}
+	return uint(number)
 }
