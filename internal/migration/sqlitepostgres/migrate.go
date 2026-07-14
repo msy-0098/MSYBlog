@@ -48,13 +48,8 @@ func Run(ctx context.Context, options Options) (Report, error) {
 	}
 
 	// Schema creation is intentionally after the dry-run branch: dry runs make
-	// no writes at all, while real migrations create only schema and never seed.
-	if err := database.AutoMigrate(target); err != nil {
-		return Report{}, fmt.Errorf("create PostgreSQL schema: %w", err)
-	}
-	if err := EnsureTargetEmpty(target, tables); err != nil {
-		return Report{}, err
-	}
+	// no writes at all. The real migration creates schema, copies data, resets
+	// sequences, and validates inside one PostgreSQL transaction.
 	return CopyAndValidate(ctx, source, target)
 }
 
@@ -73,6 +68,12 @@ func Scan(ctx context.Context, source *gorm.DB, tables []TableSpec) (Report, err
 func CopyAndValidate(ctx context.Context, source, target *gorm.DB) (Report, error) {
 	var report Report
 	err := target.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := database.AutoMigrate(tx); err != nil {
+			return fmt.Errorf("create PostgreSQL schema: %w", err)
+		}
+		if err := EnsureTargetEmpty(tx, ExistingBusinessTables()); err != nil {
+			return err
+		}
 		if _, err := CopyAll(ctx, tx, source); err != nil {
 			return err
 		}

@@ -12,7 +12,10 @@ import (
 	"masenyu.top/blog/backend/internal/migration/sqlitepostgres"
 )
 
-var passwordPattern = regexp.MustCompile(`(?i)(password\s*=\s*)\S+`)
+var (
+	passwordPattern            = regexp.MustCompile(`(?i)(password\s*=\s*)\S+`)
+	postgresURLPasswordPattern = regexp.MustCompile(`(?i)(postgres(?:ql)?://[^:\s/@]+:)[^@\s/]+(@)`)
+)
 
 func main() {
 	sqlitePath := flag.String("sqlite-path", "", "read-only SQLite source path")
@@ -46,6 +49,9 @@ func fatal(message string) {
 }
 
 func redactSensitive(message, dsn string) string {
-	message = strings.ReplaceAll(message, dsn, "[REDACTED]")
-	return passwordPattern.ReplaceAllString(message, "${1}[REDACTED]")
+	if strings.TrimSpace(dsn) != "" {
+		message = strings.ReplaceAll(message, dsn, "[REDACTED]")
+	}
+	message = passwordPattern.ReplaceAllString(message, "${1}[REDACTED]")
+	return postgresURLPasswordPattern.ReplaceAllString(message, "${1}[REDACTED]${2}")
 }

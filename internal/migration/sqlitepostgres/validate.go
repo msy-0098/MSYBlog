@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -95,6 +96,7 @@ func validateRelations(ctx context.Context, target *gorm.DB) error {
 		{"post_tags.tag_id", "SELECT COUNT(*) FROM post_tags pt LEFT JOIN tags t ON t.id = pt.tag_id WHERE t.id IS NULL"},
 		{"comments.post_id", "SELECT COUNT(*) FROM comments c LEFT JOIN posts p ON p.id = c.post_id WHERE p.id IS NULL"},
 		{"comments.user_id", "SELECT COUNT(*) FROM comments c LEFT JOIN users u ON u.id = c.user_id WHERE u.id IS NULL"},
+		{"access_logs.post_id", "SELECT COUNT(*) FROM access_logs a LEFT JOIN posts p ON p.id = a.post_id WHERE a.post_id IS NOT NULL AND p.id IS NULL"},
 		{"ai_conversations.created_by", "SELECT COUNT(*) FROM ai_conversations c LEFT JOIN users u ON u.id = c.created_by WHERE u.id IS NULL"},
 		{"ai_messages.conversation_id", "SELECT COUNT(*) FROM ai_messages m LEFT JOIN ai_conversations c ON c.id = m.conversation_id WHERE c.id IS NULL"},
 	}
@@ -161,28 +163,34 @@ func canonicalDigestValue(value any) string {
 		return "<nil>"
 	case []byte:
 		return string(typed)
+	case time.Time:
+		return typed.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
+	case *time.Time:
+		if typed == nil {
+			return "<nil>"
+		}
+		return typed.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
 	default:
 		return fmt.Sprint(typed)
 	}
 }
 
 var digestColumns = map[string][]string{
-	"site_settings":            {"key", "value"},
-	"users":                    {"id", "username", "email", "nickname", "role", "password_hash"},
-	"email_verification_codes": {"id", "email", "code_hash"},
-	"categories":               {"id", "name", "slug"},
-	"tags":                     {"id", "name", "slug"},
-	"posts":                    {"id", "title", "slug", "summary", "content", "cover", "status", "view_count", "category_id"},
+	"site_settings":            {"key", "value", "created_at", "updated_at"},
+	"users":                    {"id", "username", "email", "nickname", "role", "password_hash", "created_at", "updated_at"},
+	"email_verification_codes": {"id", "email", "code_hash", "used_at", "expires_at", "created_at", "updated_at"},
+	"categories":               {"id", "name", "slug", "created_at", "updated_at"},
+	"tags":                     {"id", "name", "slug", "created_at", "updated_at"},
+	"posts":                    {"id", "title", "slug", "summary", "content", "cover", "status", "view_count", "category_id", "created_at", "updated_at", "published_at"},
 	"post_tags":                {"post_id", "tag_id"},
-	"comments":                 {"id", "post_id", "user_id", "content", "status"},
-	"projects":                 {"id", "name", "description", "url", "cover", "tech_stack", "sort"},
-	"uploads":                  {"id", "filename", "path", "mime_type", "size"},
-	"access_logs":              {"id", "ip", "method", "path", "status", "user_agent", "post_id"},
-	"ip_bans":                  {"id", "ip", "reason"},
-	"ai_conversations":         {"id", "title", "title_mode", "created_by", "model", "message_count"},
-	"ai_messages":              {"id", "conversation_id", "role", "content", "status", "sequence", "model", "error_message"},
+	"comments":                 {"id", "post_id", "user_id", "content", "status", "created_at", "updated_at"},
+	"projects":                 {"id", "name", "description", "url", "cover", "tech_stack", "sort", "visible", "created_at", "updated_at"},
+	"uploads":                  {"id", "filename", "path", "mime_type", "size", "created_at"},
+	"access_logs":              {"id", "ip", "method", "path", "status", "user_agent", "post_id", "created_at"},
+	"ip_bans":                  {"id", "ip", "reason", "active", "expires_at", "created_at", "updated_at"},
+	"ai_conversations":         {"id", "title", "title_mode", "created_by", "model", "message_count", "last_message_at", "created_at", "updated_at"},
+	"ai_messages":              {"id", "conversation_id", "role", "content", "status", "sequence", "model", "error_message", "created_at", "updated_at"},
 }
-
 var digestOrders = map[string]string{
 	"site_settings":            "key",
 	"post_tags":                "post_id, tag_id",

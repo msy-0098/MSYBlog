@@ -18,6 +18,26 @@ import (
 	"masenyu.top/blog/backend/internal/model"
 )
 
+func TestDigestColumnsCoverSecurityCriticalFields(t *testing.T) {
+	for table, requiredColumns := range map[string][]string{
+		"projects":         {"visible"},
+		"ip_bans":          {"active", "expires_at"},
+		"ai_conversations": {"last_message_at", "created_at", "updated_at"},
+		"ai_messages":      {"status", "created_at", "updated_at"},
+	} {
+		for _, requiredColumn := range requiredColumns {
+			if !contains(digestColumns[table], requiredColumn) {
+				t.Fatalf("digest for %s must include %s", table, requiredColumn)
+			}
+		}
+	}
+}
+func TestCanonicalDigestValueNormalizesTimestampPrecision(t *testing.T) {
+	value := time.Date(2026, 7, 14, 12, 0, 0, 123456789, time.FixedZone("UTC+8", 8*60*60))
+	if got, want := canonicalDigestValue(value), "2026-07-14T04:00:00.123456Z"; got != want {
+		t.Fatalf("canonical timestamp = %q, want %q", got, want)
+	}
+}
 func TestRunRequiresPostgresDSN(t *testing.T) {
 	source := createSQLiteFixture(t, false)
 	_, err := Run(context.Background(), Options{SQLitePath: source})
@@ -94,6 +114,16 @@ func TestRunRollsBackBrokenRelations(t *testing.T) {
 	}
 }
 
+func TestRunRollsBackBrokenAccessLogRelationAndSchema(t *testing.T) {
+	target, targetDSN := newUninitializedPostgresSchema(t)
+	_, err := Run(context.Background(), Options{SQLitePath: createSQLiteFixtureWithBrokenAccessLog(t), PostgresDSN: targetDSN})
+	if err == nil || !strings.Contains(err.Error(), "access_logs.post_id") {
+		t.Fatalf("expected broken access log relation to fail migration, got %v", err)
+	}
+	if target.Migrator().HasTable("posts") {
+		t.Fatal("a failed migration must roll back the PostgreSQL schema as well as copied data")
+	}
+}
 func TestValidateMigrationDetectsCriticalDigestMismatch(t *testing.T) {
 	target, _ := newEmptyPostgresSchema(t)
 	sourcePath := createSQLiteFixture(t, false)
@@ -115,7 +145,43 @@ func TestValidateMigrationDetectsCriticalDigestMismatch(t *testing.T) {
 	}
 }
 
+func TestValidateMigrationDetectsSecurityCriticalDigestMismatch(t *testing.T) {
+	target, _ := newEmptyPostgresSchema(t)
+	sourcePath := createSQLiteFixture(t, false)
+	source, err := OpenSQLiteReadOnly(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closeGormDB(source) })
+	if _, err := CopyAndValidate(context.Background(), source, target); err != nil {
+		t.Fatal(err)
+	}
+
+	expiresAt := time.Date(2027, 1, 2, 3, 4, 5, 0, time.UTC)
+	lastMessageAt := time.Date(2027, 2, 3, 4, 5, 6, 0, time.UTC)
+	if err := target.Model(&model.Project{}).Where("id = ?", 3).Update("visible", false).Error; err != nil {
+		t.Fatalf("change project visibility: %v", err)
+	}
+	if err := target.Model(&model.IPBan{}).Where("id = ?", 2).Updates(map[string]any{"active": false, "expires_at": expiresAt}).Error; err != nil {
+		t.Fatalf("change IP ban state: %v", err)
+	}
+	if err := target.Model(&model.AIConversation{}).Where("id = ?", 2).Update("last_message_at", lastMessageAt).Error; err != nil {
+		t.Fatalf("change AI conversation state: %v", err)
+	}
+	if _, err := ValidateMigration(context.Background(), source, target); err == nil || !strings.Contains(err.Error(), "digest") {
+		t.Fatalf("expected security-critical field digest mismatch, got %v", err)
+	}
+}
+
 func newEmptyPostgresSchema(t *testing.T) (*gorm.DB, string) {
+	return newPostgresSchema(t, true)
+}
+
+func newUninitializedPostgresSchema(t *testing.T) (*gorm.DB, string) {
+	return newPostgresSchema(t, false)
+}
+
+func newPostgresSchema(t *testing.T, migrate bool) (*gorm.DB, string) {
 	t.Helper()
 	baseDSN := strings.TrimSpace(os.Getenv("BLOG_TEST_DATABASE_DSN"))
 	if baseDSN == "" {
@@ -140,8 +206,10 @@ func newEmptyPostgresSchema(t *testing.T) (*gorm.DB, string) {
 		t.Fatalf("open PostgreSQL test schema: %v", err)
 	}
 	t.Cleanup(func() { closeGormDB(target) })
-	if err := database.AutoMigrate(target); err != nil {
-		t.Fatalf("migrate test schema: %v", err)
+	if migrate {
+		if err := database.AutoMigrate(target); err != nil {
+			t.Fatalf("migrate test schema: %v", err)
+		}
 	}
 	return target, targetDSN
 }
@@ -173,7 +241,8 @@ func createSQLiteFixture(t *testing.T, brokenRelation bool) string {
 	mustCreate(t, source, &model.Comment{ID: 4, PostID: 5, UserID: 1, Content: "hello", Status: model.CommentStatusApproved})
 	mustCreate(t, source, &model.Project{ID: 3, Name: "Blog", Description: "project", TechStack: "[\"Go\"]", Visible: true})
 	mustCreate(t, source, &model.Upload{ID: 2, Filename: "cover.png", Path: "/uploads/cover.png", MimeType: "image/png", Size: 42})
-	mustCreate(t, source, &model.AccessLog{ID: 3, IP: "127.0.0.1", Method: "GET", Path: "/api/site", Status: 200, PostID: &categoryID})
+	postID := uint(5)
+	mustCreate(t, source, &model.AccessLog{ID: 3, IP: "127.0.0.1", Method: "GET", Path: "/api/site", Status: 200, PostID: &postID})
 	mustCreate(t, source, &model.IPBan{ID: 2, IP: "192.0.2.1", Reason: "fixture", Active: true})
 	mustCreate(t, source, &model.AIConversation{ID: 2, Title: "chat", TitleMode: model.AIConversationTitleModeAuto, CreatedBy: 1, Model: "test", MessageCount: 1})
 	mustCreate(t, source, &model.AIMessage{ID: 3, ConversationID: 2, Role: model.AIMessageRoleUser, Content: "hello AI", Status: model.AIMessageStatusCompleted, Sequence: 1, Model: "test"})
@@ -188,6 +257,20 @@ func createSQLiteFixture(t *testing.T, brokenRelation bool) string {
 	return path
 }
 
+func createSQLiteFixtureWithBrokenAccessLog(t *testing.T) string {
+	t.Helper()
+	path := createSQLiteFixture(t, false)
+	source, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidPostID := uint(999)
+	if err := source.Model(&model.AccessLog{}).Where("id = ?", 3).Update("post_id", invalidPostID).Error; err != nil {
+		t.Fatalf("create broken access log fixture: %v", err)
+	}
+	closeGormDB(source)
+	return path
+}
 func mustCreate(t *testing.T, db *gorm.DB, value any) {
 	t.Helper()
 	if err := db.Create(value).Error; err != nil {
