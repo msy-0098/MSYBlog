@@ -1,0 +1,139 @@
+﻿name: Migrate SQLite to PostgreSQL
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type MIGRATE to approve the one-time historical data migration.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-to-postgres-migration
+  cancel-in-progress: false
+
+jobs:
+  build-migrator:
+    name: Build migration command
+    if: ${{ inputs.confirm == 'MIGRATE' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: true
+
+      - name: Build Linux migration command
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags="-s -w" \
+            -o migrate-sqlite-to-postgres ./cmd/migrate-sqlite-to-postgres
+
+      - name: Upload migration command
+        uses: actions/upload-artifact@v4
+        with:
+          name: migrate-sqlite-to-postgres
+          path: migrate-sqlite-to-postgres
+          if-no-files-found: error
+
+  migrate:
+    name: Approved production migration
+    needs: build-migrator
+    if: ${{ inputs.confirm == 'MIGRATE' }}
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Download migration command
+        uses: actions/download-artifact@v4
+        with:
+          name: migrate-sqlite-to-postgres
+          path: deploy
+
+      - name: Prepare SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Upload migration command
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          RELEASE_ID: ${{ github.sha }}
+        run: |
+          SSH_OPTIONS="-o IdentitiesOnly=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=12"
+          scp -P "${DEPLOY_PORT}" ${SSH_OPTIONS} \
+            deploy/migrate-sqlite-to-postgres \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/migrate-sqlite-to-postgres-${RELEASE_ID}"
+
+      - name: Back up, dry-run, migrate, and verify
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          RELEASE_ID: ${{ github.sha }}
+        run: |
+          ssh -p "${DEPLOY_PORT}" \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=30 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "RELEASE_ID='${RELEASE_ID}' bash -se" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+
+          source_path=/home/ubuntu/blog/backend/data/blog.db
+          env_file=/etc/blog/blog.env
+          migrator=/tmp/migrate-sqlite-to-postgres-"${RELEASE_ID}"
+          backup_dir=/home/ubuntu/blog/backups/sqlite-to-postgres-"${RELEASE_ID}"
+
+          test -f "${source_path}"
+          test -r "${env_file}"
+          test -x "${migrator}"
+
+          install -d -m 700 "${backup_dir}"
+          cp --preserve=mode,timestamps "${source_path}" "${backup_dir}/blog.db"
+          for sidecar in "${source_path}-wal" "${source_path}-shm"; do
+            if test -f "${sidecar}"; then
+              cp --preserve=mode,timestamps "${sidecar}" "${backup_dir}/"
+            fi
+          done
+
+          set -a
+          . "${env_file}"
+          set +a
+          test -n "${BLOG_DATABASE_DSN:-}"
+
+          # The command is read-only for the source. It refuses non-empty
+          # PostgreSQL business tables and the dry run performs no target writes.
+          "${migrator}" --sqlite-path "${source_path}" --dry-run
+          "${migrator}" --sqlite-path "${source_path}"
+
+          sudo -n systemctl restart blog.service
+          sudo -n systemctl is-active --quiet blog.service
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/site
+          REMOTE
+
+      - name: Health check through SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -p "${DEPLOY_PORT}" \
+            -o IdentitiesOnly=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "curl --fail --silent --show-error http://127.0.0.1:8080/api/site"
