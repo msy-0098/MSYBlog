@@ -46,14 +46,31 @@ func Open(options Options) (*gorm.DB, error) {
 		return nil, err
 	}
 
+	bootstrap, err := isUninitializedDatabase(db)
+	if err != nil {
+		return nil, fmt.Errorf("inspect database bootstrap state: %w", err)
+	}
 	if err := AutoMigrate(db); err != nil {
 		return nil, err
 	}
-	if err := SeedDefaults(db, options.Config); err != nil {
-		return nil, err
+	if bootstrap {
+		if err := SeedDefaults(db, options.Config); err != nil {
+			return nil, err
+		}
 	}
 
 	return db, nil
+}
+
+// isUninitializedDatabase reports whether this is the first service bootstrap.
+// Any existing table means the database is not truly empty, so startup must not
+// write defaults or synchronize the configured administrator password.
+func isUninitializedDatabase(db *gorm.DB) (bool, error) {
+	tables, err := db.Migrator().GetTables()
+	if err != nil {
+		return false, err
+	}
+	return len(tables) == 0, nil
 }
 
 func dialector(driver string, dsn string) gorm.Dialector {

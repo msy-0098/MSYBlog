@@ -1,4 +1,4 @@
-# IDE and editor
+﻿# IDE and editor
 .idea/
 .vscode/
 *.code-workspace
@@ -46,3 +46,6 @@ Thumbs.db
 
 # Local isolated worktrees
 .worktrees/
+
+# Local Go cache
+.gocache/

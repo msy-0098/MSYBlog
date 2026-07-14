@@ -58,6 +58,84 @@ func TestSeedDefaultsWritesDataAfterSchema(t *testing.T) {
 	}
 }
 
+func TestOpenDoesNotSeedExistingBusinessData(t *testing.T) {
+	db := testPostgresDatabase(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+
+	const username = "existing-admin"
+	const originalHash = "keep-existing-password-hash"
+	if err := db.Create(&model.User{
+		Username:     username,
+		Email:        "existing-admin@example.test",
+		Nickname:     "Existing admin",
+		Role:         model.UserRoleAdmin,
+		PasswordHash: originalHash,
+	}).Error; err != nil {
+		t.Fatalf("create existing admin: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Database.DSN = os.Getenv("BLOG_TEST_DATABASE_DSN")
+	cfg.Admin.InitialUsername = username
+	cfg.Admin.InitialPassword = "must-not-replace-existing-password"
+	opened, err := Open(Options{Config: cfg})
+	if err != nil {
+		t.Fatalf("open existing database: %v", err)
+	}
+	openedSQL, err := opened.DB()
+	if err != nil {
+		t.Fatalf("get opened database handle: %v", err)
+	}
+	t.Cleanup(func() { _ = openedSQL.Close() })
+
+	var admin model.User
+	if err := db.Where("username = ?", username).First(&admin).Error; err != nil {
+		t.Fatalf("load existing admin: %v", err)
+	}
+	if admin.PasswordHash != originalHash {
+		t.Fatal("Open must not overwrite an existing administrator password hash")
+	}
+	for _, table := range []any{&model.SiteSetting{}, &model.Post{}} {
+		var count int64
+		if err := db.Model(table).Count(&count).Error; err != nil {
+			t.Fatalf("count %T rows: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("Open must not seed %T into an existing business database, got %d rows", table, count)
+		}
+	}
+}
+
+func TestOpenDoesNotSeedAnExistingEmptySchema(t *testing.T) {
+	db := testPostgresDatabase(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Database.DSN = os.Getenv("BLOG_TEST_DATABASE_DSN")
+	opened, err := Open(Options{Config: cfg})
+	if err != nil {
+		t.Fatalf("open existing empty schema: %v", err)
+	}
+	openedSQL, err := opened.DB()
+	if err != nil {
+		t.Fatalf("get opened database handle: %v", err)
+	}
+	t.Cleanup(func() { _ = openedSQL.Close() })
+
+	for _, table := range []any{&model.User{}, &model.SiteSetting{}, &model.Post{}} {
+		var count int64
+		if err := db.Model(table).Count(&count).Error; err != nil {
+			t.Fatalf("count %T rows: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("Open must seed only an uninitialized database, got %d %T rows", count, table)
+		}
+	}
+}
 func TestAutoMigrateEnforcesAIMessageConversationSequenceUniqueness(t *testing.T) {
 	db := testPostgresDatabase(t)
 
