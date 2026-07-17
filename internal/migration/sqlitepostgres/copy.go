@@ -43,10 +43,14 @@ func copyTable(ctx context.Context, tx, source *gorm.DB, spec TableSpec) error {
 		return copyTyped[model.Post](ctx, tx, source, spec)
 	case "post_tags":
 		return copyTyped[postTag](ctx, tx, source, spec)
+	case "post_likes":
+		return copyTyped[model.PostLike](ctx, tx, source, spec)
 	case "comments":
 		return copyTyped[model.Comment](ctx, tx, source, spec)
 	case "projects":
 		return copyTyped[model.Project](ctx, tx, source, spec)
+	case "friend_links":
+		return copyTyped[model.FriendLink](ctx, tx, source, spec)
 	case "uploads":
 		return copyTyped[model.Upload](ctx, tx, source, spec)
 	case "access_logs":

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
 )
@@ -23,6 +24,7 @@ type PostSummary struct {
 	Summary     string        `json:"summary"`
 	Cover       string        `json:"cover"`
 	ViewCount   int           `json:"viewCount"`
+	LikeCount   int           `json:"likeCount"`
 	Category    TaxonomyDTO   `json:"category"`
 	Tags        []TaxonomyDTO `json:"tags"`
 	PublishedAt string        `json:"publishedAt"`
@@ -270,6 +272,66 @@ func (h BlogHandler) ListProjects(c *gin.Context) {
 	response.Success(c, ListDTO[ProjectDTO]{List: list})
 }
 
+func (h BlogHandler) ListLinks(c *gin.Context) {
+	var links []model.FriendLink
+	if err := h.db.Where("visible = ?", true).
+		Order("sort desc").
+		Order("id asc").
+		Find(&links).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+
+	list := make([]FriendLinkDTO, 0, len(links))
+	for _, link := range links {
+		list = append(list, friendLinkDTO(link))
+	}
+
+	response.Success(c, ListDTO[FriendLinkDTO]{List: list})
+}
+
+// LikePost records an IP-unique like for a published post.
+func (h BlogHandler) LikePost(c *gin.Context) {
+	var post model.Post
+	if err := h.db.Where("slug = ? AND status = ?", c.Param("slug"), model.PostStatusPublished).
+		First(&post).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.Error(c, http.StatusNotFound, 404, "文章不存在")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+
+	ip := middleware.ClientIP(c)
+	if strings.TrimSpace(ip) == "" {
+		ip = "unknown"
+	}
+
+	like := model.PostLike{PostID: post.ID, IP: ip}
+	err := h.db.Where("post_id = ? AND ip = ?", post.ID, ip).FirstOrCreate(&like).Error
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+
+	// FirstOrCreate returns existing without creating when already liked.
+	var count int64
+	if err := h.db.Model(&model.PostLike{}).Where("post_id = ?", post.ID).Count(&count).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+	if err := h.db.Model(&post).Update("like_count", count).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"likeCount": count,
+		"liked":     true,
+	})
+}
+
 func (h BlogHandler) paginatedPosts(filters postFilters, page int, pageSize int) (PageDTO[PostSummary], error) {
 	var total int64
 	if err := h.postQuery(filters).Distinct("posts.id").Count(&total).Error; err != nil {
@@ -390,6 +452,7 @@ func postSummary(post model.Post) PostSummary {
 		Summary:     post.Summary,
 		Cover:       post.Cover,
 		ViewCount:   post.ViewCount,
+		LikeCount:   post.LikeCount,
 		Category:    TaxonomyDTO{ID: post.Category.ID, Name: post.Category.Name, Slug: post.Category.Slug},
 		Tags:        tags,
 		PublishedAt: formatDate(post.PublishedAt),

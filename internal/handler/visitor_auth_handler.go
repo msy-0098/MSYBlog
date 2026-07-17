@@ -2,6 +2,7 @@ package handler
 
 import (
 	cryptorand "crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -26,7 +27,8 @@ type VisitorAuthHandler struct {
 }
 
 type EmailCodeRequest struct {
-	Email string `json:"email"`
+	Email   string `json:"email"`
+	Purpose string `json:"purpose"`
 }
 
 type VisitorRegisterRequest struct {
@@ -39,6 +41,12 @@ type VisitorRegisterRequest struct {
 type VisitorLoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type VisitorResetPasswordRequest struct {
+	Email       string `json:"email"`
+	Code        string `json:"code"`
+	NewPassword string `json:"newPassword"`
 }
 
 type VisitorUserDTO struct {
@@ -75,6 +83,16 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 		return
 	}
 
+	purpose := normalizeCodePurpose(req.Purpose)
+	if purpose == "reset" {
+		var user model.User
+		if err := h.db.Where("email = ? AND role = ?", email, model.UserRoleVisitor).First(&user).Error; err != nil {
+			// Do not reveal whether the email is registered.
+			response.Success(c, gin.H{"sent": true})
+			return
+		}
+	}
+
 	code, err := h.issueCode()
 	if err != nil {
 		internalError(c)
@@ -89,6 +107,7 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 
 	if err := h.db.Create(&model.EmailVerificationCode{
 		Email:     email,
+		Purpose:   purpose,
 		CodeHash:  codeHash,
 		ExpiresAt: h.now().Add(10 * time.Minute),
 	}).Error; err != nil {
@@ -97,7 +116,7 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 	}
 
 	if h.mailConfigured() {
-		if err := h.sendCodeEmail(email, code); err != nil {
+		if err := h.sendCodeEmail(email, code, purpose); err != nil {
 			response.Error(c, http.StatusInternalServerError, 500, "验证码邮件发送失败")
 			return
 		}
@@ -122,7 +141,7 @@ func (h VisitorAuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if !h.verifyCode(email, code) {
+	if !h.verifyCode(email, code, "register") {
 		response.Error(c, http.StatusBadRequest, 400, "验证码错误或已过期")
 		return
 	}
@@ -182,6 +201,45 @@ func (h VisitorAuthHandler) Login(c *gin.Context) {
 	response.Success(c, VisitorAuthResponse{Token: token, User: visitorUserDTO(user)})
 }
 
+func (h VisitorAuthHandler) ResetPassword(c *gin.Context) {
+	var req VisitorResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c)
+		return
+	}
+
+	email := normalizeEmail(req.Email)
+	code := strings.TrimSpace(req.Code)
+	newPassword := strings.TrimSpace(req.NewPassword)
+	if !validEmail(email) || code == "" || len(newPassword) < 8 {
+		badRequest(c)
+		return
+	}
+
+	if !h.verifyCode(email, code, "reset") {
+		response.Error(c, http.StatusBadRequest, 400, "验证码错误或已过期")
+		return
+	}
+
+	var user model.User
+	if err := h.db.Where("email = ? AND role = ?", email, model.UserRoleVisitor).First(&user).Error; err != nil {
+		response.Error(c, http.StatusBadRequest, 400, "验证码错误或已过期")
+		return
+	}
+
+	hash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		internalError(c)
+		return
+	}
+	if err := h.db.Model(&user).Update("password_hash", hash).Error; err != nil {
+		internalError(c)
+		return
+	}
+
+	response.Success(c, gin.H{"updated": true})
+}
+
 func (h VisitorAuthHandler) issueCode() (string, error) {
 	// Local / test mode without SMTP uses a fixed code so registration still works.
 	if !h.mailConfigured() {
@@ -196,13 +254,24 @@ func (h VisitorAuthHandler) issueCode() (string, error) {
 	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
-func (h VisitorAuthHandler) verifyCode(email string, code string) bool {
+func (h VisitorAuthHandler) verifyCode(email string, code string, purpose string) bool {
+	purpose = normalizeCodePurpose(purpose)
 	var verification model.EmailVerificationCode
-	err := h.db.Where("email = ? AND used_at IS NULL AND expires_at > ?", email, h.now()).
-		Order("created_at desc").
-		First(&verification).Error
+	err := h.db.Where(
+		"email = ? AND purpose = ? AND used_at IS NULL AND expires_at > ?",
+		email, purpose, h.now(),
+	).Order("created_at desc").First(&verification).Error
 	if err != nil {
-		return false
+		// Backward-compatible fallback for codes created before purpose column existed.
+		if purpose == "register" {
+			err = h.db.Where(
+				"email = ? AND used_at IS NULL AND expires_at > ?",
+				email, h.now(),
+			).Order("created_at desc").First(&verification).Error
+		}
+		if err != nil {
+			return false
+		}
 	}
 
 	if !auth.CheckPassword(verification.CodeHash, code) {
@@ -218,7 +287,7 @@ func (h VisitorAuthHandler) mailConfigured() bool {
 	return h.cfg.Mail.SMTPHost != "" && h.cfg.Mail.SMTPPort != "" && h.cfg.Mail.Username != "" && h.cfg.Mail.Password != ""
 }
 
-func (h VisitorAuthHandler) sendCodeEmail(email string, code string) error {
+func (h VisitorAuthHandler) sendCodeEmail(email string, code string, purpose string) error {
 	from := h.cfg.Mail.From
 	if from == "" {
 		from = h.cfg.Mail.Username
@@ -227,17 +296,42 @@ func (h VisitorAuthHandler) sendCodeEmail(email string, code string) error {
 	host := h.cfg.Mail.SMTPHost
 	address := host + ":" + h.cfg.Mail.SMTPPort
 	authenticator := smtp.PlainAuth("", h.cfg.Mail.Username, h.cfg.Mail.Password, host)
+
+	subject := "博客评论验证码"
+	body := "你的评论注册验证码是：" + code + "，10 分钟内有效。"
+	if purpose == "reset" {
+		subject = "博客密码重置验证码"
+		body = "你的密码重置验证码是：" + code + "，10 分钟内有效。"
+	}
+
 	message := strings.Join([]string{
 		"From: " + from,
 		"To: " + email,
-		"Subject: =?UTF-8?B?5Y2a5a6i6K6o6K66IOmqjOivgeeggQ==?=",
+		"Subject: " + encodeMailSubject(subject),
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=UTF-8",
 		"",
-		"你的评论注册验证码是：" + code + "，10 分钟内有效。",
+		body,
 	}, "\r\n")
 
 	return smtp.SendMail(address, authenticator, from, []string{email}, []byte(message))
+}
+
+func encodeMailSubject(subject string) string {
+	for _, r := range subject {
+		if r > 127 {
+			return "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(subject)) + "?="
+		}
+	}
+	return subject
+}
+
+func normalizeCodePurpose(raw string) string {
+	purpose := strings.ToLower(strings.TrimSpace(raw))
+	if purpose == "reset" {
+		return "reset"
+	}
+	return "register"
 }
 
 func visitorUserDTO(user model.User) VisitorUserDTO {

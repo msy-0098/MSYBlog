@@ -47,6 +47,7 @@ type AdminPostDTO struct {
 	Cover       string        `json:"cover"`
 	Status      string        `json:"status"`
 	ViewCount   int           `json:"viewCount"`
+	LikeCount   int           `json:"likeCount"`
 	CategoryID  uint          `json:"categoryId"`
 	Category    TaxonomyDTO   `json:"category"`
 	Tags        []TaxonomyDTO `json:"tags"`
@@ -74,6 +75,25 @@ type ProjectDTO struct {
 	TechStack   []string `json:"techStack"`
 	Sort        int      `json:"sort"`
 	Visible     bool     `json:"visible"`
+}
+
+type FriendLinkRequest struct {
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Logo        string `json:"logo"`
+	Sort        int    `json:"sort"`
+	Visible     bool   `json:"visible"`
+}
+
+type FriendLinkDTO struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Logo        string `json:"logo"`
+	Sort        int    `json:"sort"`
+	Visible     bool   `json:"visible"`
 }
 
 func NewAdminContentHandler(db *gorm.DB, cfg config.Config) AdminContentHandler {
@@ -445,6 +465,89 @@ func (h AdminContentHandler) DeleteProject(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+func (h AdminContentHandler) ListLinks(c *gin.Context) {
+	var links []model.FriendLink
+	if err := h.db.Order("sort desc").Order("id asc").Find(&links).Error; err != nil {
+		internalError(c)
+		return
+	}
+
+	list := make([]FriendLinkDTO, 0, len(links))
+	for _, link := range links {
+		list = append(list, friendLinkDTO(link))
+	}
+
+	response.Success(c, ListDTO[FriendLinkDTO]{List: list})
+}
+
+func (h AdminContentHandler) CreateLink(c *gin.Context) {
+	var req FriendLinkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c)
+		return
+	}
+
+	link, err := friendLinkFromRequest(req, model.FriendLink{})
+	if err != nil {
+		badRequest(c)
+		return
+	}
+
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&link).Error; err != nil {
+			return err
+		}
+		if !req.Visible {
+			return tx.Model(&link).Update("visible", false).Error
+		}
+		return nil
+	}); err != nil {
+		internalError(c)
+		return
+	}
+
+	response.Success(c, friendLinkDTO(link))
+}
+
+func (h AdminContentHandler) UpdateLink(c *gin.Context) {
+	var link model.FriendLink
+	if !h.findByID(c, &link) {
+		return
+	}
+
+	var req FriendLinkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c)
+		return
+	}
+
+	updated, err := friendLinkFromRequest(req, link)
+	if err != nil {
+		badRequest(c)
+		return
+	}
+	if err := h.db.Save(&updated).Error; err != nil {
+		internalError(c)
+		return
+	}
+
+	response.Success(c, friendLinkDTO(updated))
+}
+
+func (h AdminContentHandler) DeleteLink(c *gin.Context) {
+	var link model.FriendLink
+	if !h.findByID(c, &link) {
+		return
+	}
+
+	if err := h.db.Delete(&link).Error; err != nil {
+		internalError(c)
+		return
+	}
+
+	response.Success(c, gin.H{"deleted": true})
+}
+
 func (h AdminContentHandler) GetSettings(c *gin.Context) {
 	response.Success(c, h.effectiveSettings())
 }
@@ -604,6 +707,7 @@ func adminPostDTO(post model.Post) AdminPostDTO {
 		Cover:       post.Cover,
 		Status:      post.Status,
 		ViewCount:   post.ViewCount,
+		LikeCount:   post.LikeCount,
 		CategoryID:  post.CategoryID,
 		Category:    TaxonomyDTO{ID: post.Category.ID, Name: post.Category.Name, Slug: post.Category.Slug},
 		Tags:        tags,
@@ -648,6 +752,34 @@ func projectDTO(project model.Project) ProjectDTO {
 		TechStack:   techStack,
 		Sort:        project.Sort,
 		Visible:     project.Visible,
+	}
+}
+
+func friendLinkFromRequest(req FriendLinkRequest, link model.FriendLink) (model.FriendLink, error) {
+	link.Name = strings.TrimSpace(req.Name)
+	link.URL = strings.TrimSpace(req.URL)
+	link.Description = strings.TrimSpace(req.Description)
+	link.Logo = strings.TrimSpace(req.Logo)
+	link.Sort = req.Sort
+	link.Visible = req.Visible
+	if link.Name == "" || link.URL == "" {
+		return link, errors.New("missing required friend link fields")
+	}
+	if !strings.HasPrefix(link.URL, "http://") && !strings.HasPrefix(link.URL, "https://") {
+		return link, errors.New("invalid friend link url")
+	}
+	return link, nil
+}
+
+func friendLinkDTO(link model.FriendLink) FriendLinkDTO {
+	return FriendLinkDTO{
+		ID:          link.ID,
+		Name:        link.Name,
+		URL:         link.URL,
+		Description: link.Description,
+		Logo:        link.Logo,
+		Sort:        link.Sort,
+		Visible:     link.Visible,
 	}
 }
 

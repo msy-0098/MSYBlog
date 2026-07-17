@@ -25,7 +25,7 @@ func TestSendCodeEmailUsesRegistrationEmailAsRecipient(t *testing.T) {
 		},
 	}
 
-	if err := handler.sendCodeEmail("reader@example.com", "123456"); err != nil {
+	if err := handler.sendCodeEmail("reader@example.com", "123456", "register"); err != nil {
 		t.Fatalf("expected email to be addressed to registration email, got %v", err)
 	}
 }

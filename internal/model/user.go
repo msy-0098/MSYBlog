@@ -21,6 +21,8 @@ type User struct {
 type EmailVerificationCode struct {
 	ID        uint   `gorm:"primaryKey"`
 	Email     string `gorm:"size:180;index;not null"`
+	// Purpose: register | reset
+	Purpose   string `gorm:"size:20;index;not null;default:'register'"`
 	CodeHash  string `gorm:"size:255;not null"`
 	UsedAt    *time.Time
 	ExpiresAt time.Time `gorm:"index;not null"`
