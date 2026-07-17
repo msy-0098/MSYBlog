@@ -114,6 +114,57 @@ func TestAdminProfileReturnsCurrentUserWithToken(t *testing.T) {
 	}
 }
 
+func TestAdminChangePasswordUpdatesCredentials(t *testing.T) {
+	engine := newAdminAuthTestEngine(t)
+	token := loginAndGetToken(t, engine)
+
+	change := performJSONRequest(engine, http.MethodPut, "/api/admin/password", map[string]string{
+		"currentPassword": "admin-test-password",
+		"newPassword":     "admin-new-password",
+	}, token)
+	if change.Code != http.StatusOK {
+		t.Fatalf("expected password change status 200, got %d with body %s", change.Code, change.Body.String())
+	}
+
+	oldLogin := performJSONRequest(engine, http.MethodPost, "/api/admin/login", map[string]string{
+		"username": "masenyu812@gmail.com",
+		"password": "admin-test-password",
+	}, "")
+	if oldLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old password rejected with 401, got %d", oldLogin.Code)
+	}
+
+	newLogin := performJSONRequest(engine, http.MethodPost, "/api/admin/login", map[string]string{
+		"username": "masenyu812@gmail.com",
+		"password": "admin-new-password",
+	}, "")
+	if newLogin.Code != http.StatusOK {
+		t.Fatalf("expected new password login status 200, got %d with body %s", newLogin.Code, newLogin.Body.String())
+	}
+}
+
+func TestAdminLoginRateLimitBlocksBursts(t *testing.T) {
+	engine := newAdminAuthTestEngine(t)
+
+	var last *httptest.ResponseRecorder
+	for i := 0; i < 6; i++ {
+		last = performJSONRequest(engine, http.MethodPost, "/api/admin/login", map[string]string{
+			"username": "masenyu812@gmail.com",
+			"password": "wrong-password",
+		}, "")
+	}
+
+	if last == nil || last.Code != http.StatusTooManyRequests {
+		code := 0
+		body := ""
+		if last != nil {
+			code = last.Code
+			body = last.Body.String()
+		}
+		t.Fatalf("expected 6th login attempt to be rate limited with 429, got %d body %s", code, body)
+	}
+}
+
 func loginAndGetToken(t *testing.T, handler http.Handler) string {
 	t.Helper()
 

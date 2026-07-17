@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -33,6 +34,7 @@ func New(deps Dependencies) *gin.Engine {
 	}
 	siteHandler := handler.NewSiteHandler(deps.Database, deps.Config)
 	blogHandler := handler.NewBlogHandler(deps.Database)
+	feedHandler := handler.NewFeedHandler(deps.Database, deps.Config)
 	commentHandler := handler.NewCommentHandler(deps.Database)
 	visitorAuthHandler := handler.NewVisitorAuthHandler(deps.Database, deps.Config)
 	adminAuthHandler := handler.NewAdminAuthHandler(deps.Database, deps.Config.Auth.JWTSecret)
@@ -40,10 +42,19 @@ func New(deps Dependencies) *gin.Engine {
 	adminDashboardHandler := handler.NewAdminDashboardHandler(deps.Database)
 	adminInsightHandler := handler.NewAdminInsightHandler(deps.Database, aiClient, deps.Config.AI.Model)
 	adminAIHandler := handler.NewAdminAIHandler(service.NewAIConversationService(deps.Database, aiClient, deps.Config.AI.Model))
+	limiter := middleware.NewRateLimiter()
+
+	// SEO discovery endpoints (also proxied by nginx as /rss.xml /sitemap.xml /robots.txt).
+	engine.GET("/rss.xml", feedHandler.RSS)
+	engine.GET("/sitemap.xml", feedHandler.Sitemap)
+	engine.GET("/robots.txt", feedHandler.Robots)
 
 	api := engine.Group("/api")
 	api.GET("/site", siteHandler.GetSite)
 	api.GET("/health", func(c *gin.Context) { response.Success(c, gin.H{"status": "ok"}) })
+	api.GET("/rss.xml", feedHandler.RSS)
+	api.GET("/sitemap.xml", feedHandler.Sitemap)
+	api.GET("/robots.txt", feedHandler.Robots)
 	api.GET("/posts", blogHandler.ListPosts)
 	api.GET("/posts/:slug", blogHandler.GetPost)
 	api.GET("/categories", blogHandler.ListCategories)
@@ -53,15 +64,16 @@ func New(deps Dependencies) *gin.Engine {
 	api.GET("/archive", blogHandler.Archive)
 	api.GET("/projects", blogHandler.ListProjects)
 	api.GET("/search", blogHandler.Search)
-	api.POST("/auth/email-code", visitorAuthHandler.SendEmailCode)
-	api.POST("/auth/register", visitorAuthHandler.Register)
-	api.POST("/auth/login", visitorAuthHandler.Login)
+	api.POST("/auth/email-code", limiter.Limit(3, time.Minute), visitorAuthHandler.SendEmailCode)
+	api.POST("/auth/register", limiter.Limit(10, time.Minute), visitorAuthHandler.Register)
+	api.POST("/auth/login", limiter.Limit(10, time.Minute), visitorAuthHandler.Login)
 	api.GET("/posts/:slug/comments", commentHandler.ListPostComments)
 	api.POST("/posts/:slug/comments", middleware.RequireAuth(deps.Config.Auth.JWTSecret), commentHandler.CreatePostComment)
-	api.POST("/admin/login", adminAuthHandler.Login)
+	api.POST("/admin/login", limiter.Limit(5, time.Minute), adminAuthHandler.Login)
 
 	admin := api.Group("/admin", middleware.RequireAdmin(deps.Config.Auth.JWTSecret))
 	admin.GET("/profile", adminAuthHandler.Profile)
+	admin.PUT("/password", adminAuthHandler.ChangePassword)
 	admin.GET("/dashboard", adminDashboardHandler.GetDashboard)
 	admin.GET("/analytics", adminInsightHandler.GetAnalytics)
 	admin.GET("/users", adminInsightHandler.ListUsers)

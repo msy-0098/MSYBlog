@@ -1,8 +1,9 @@
 package handler
 
 import (
+	cryptorand "crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"net/smtp"
 	"strings"
@@ -74,7 +75,12 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 		return
 	}
 
-	code := h.issueCode()
+	code, err := h.issueCode()
+	if err != nil {
+		internalError(c)
+		return
+	}
+
 	codeHash, err := auth.HashPassword(code)
 	if err != nil {
 		internalError(c)
@@ -176,12 +182,18 @@ func (h VisitorAuthHandler) Login(c *gin.Context) {
 	response.Success(c, VisitorAuthResponse{Token: token, User: visitorUserDTO(user)})
 }
 
-func (h VisitorAuthHandler) issueCode() string {
+func (h VisitorAuthHandler) issueCode() (string, error) {
+	// Local / test mode without SMTP uses a fixed code so registration still works.
 	if !h.mailConfigured() {
-		return "000000"
+		return "000000", nil
 	}
 
-	return fmt.Sprintf("%06d", rand.New(rand.NewSource(h.now().UnixNano())).Intn(1000000))
+	n, err := cryptorand.Int(cryptorand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
 func (h VisitorAuthHandler) verifyCode(email string, code string) bool {

@@ -88,6 +88,60 @@ func (h AdminAuthHandler) Profile(c *gin.Context) {
 	response.Success(c, adminUserDTO(user))
 }
 
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+func (h AdminAuthHandler) ChangePassword(c *gin.Context) {
+	claims, ok := c.MustGet(middleware.CurrentUserKey).(*auth.Claims)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, 401, "未登录或 token 失效")
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, 400, "参数错误")
+		return
+	}
+
+	currentPassword := strings.TrimSpace(req.CurrentPassword)
+	newPassword := strings.TrimSpace(req.NewPassword)
+	if currentPassword == "" || len(newPassword) < 8 {
+		response.Error(c, http.StatusBadRequest, 400, "新密码至少 8 位")
+		return
+	}
+	if currentPassword == newPassword {
+		response.Error(c, http.StatusBadRequest, 400, "新密码不能与当前密码相同")
+		return
+	}
+
+	var user model.User
+	if err := h.db.First(&user, claims.UserID).Error; err != nil {
+		response.Error(c, http.StatusUnauthorized, 401, "用户不存在或 token 已失效")
+		return
+	}
+
+	if !auth.CheckPassword(user.PasswordHash, currentPassword) {
+		response.Error(c, http.StatusBadRequest, 400, "当前密码错误")
+		return
+	}
+
+	hash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+
+	if err := h.db.Model(&user).Update("password_hash", hash).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+
+	response.Success(c, gin.H{"updated": true})
+}
+
 func adminUserDTO(user model.User) AdminUserDTO {
 	return AdminUserDTO{ID: user.ID, Username: user.Username, Email: user.Email, Nickname: user.Nickname, Role: user.Role, CreatedAt: formatTime(user.CreatedAt)}
 }
