@@ -18,9 +18,22 @@ func ResetSequences(tx *gorm.DB, tables []TableSpec) error {
 		if !isSafeIdentifier(table.Name) {
 			return fmt.Errorf("unsafe table name %q", table.Name)
 		}
+		if !tx.Migrator().HasTable(table.Name) {
+			continue
+		}
+
+		var sequenceName *string
+		if err := tx.Raw(`SELECT pg_get_serial_sequence(?, 'id')`, table.Name).Scan(&sequenceName).Error; err != nil {
+			return fmt.Errorf("lookup sequence for %s: %w", table.Name, err)
+		}
+		// Empty newly-added tables or identity-only columns may not expose a serial sequence.
+		if sequenceName == nil || strings.TrimSpace(*sequenceName) == "" {
+			continue
+		}
+
 		quotedTable := `"` + table.Name + `"`
-		statement := `SELECT setval(pg_get_serial_sequence(?, 'id'), COALESCE((SELECT MAX(id) FROM ` + quotedTable + `), 1), EXISTS(SELECT 1 FROM ` + quotedTable + `))`
-		if err := tx.Exec(statement, table.Name).Error; err != nil {
+		statement := `SELECT setval(?, COALESCE((SELECT MAX(id) FROM ` + quotedTable + `), 1), EXISTS(SELECT 1 FROM ` + quotedTable + `))`
+		if err := tx.Exec(statement, *sequenceName).Error; err != nil {
 			return fmt.Errorf("reset sequence for %s: %w", table.Name, err)
 		}
 	}
