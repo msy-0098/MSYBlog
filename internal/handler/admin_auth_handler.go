@@ -67,10 +67,17 @@ func (h AdminAuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	middleware.SetAuthCookie(c, middleware.AdminTokenCookie, token)
+
 	response.Success(c, LoginResponse{
 		Token: token,
 		User:  adminUserDTO(user),
 	})
+}
+
+func (h AdminAuthHandler) Logout(c *gin.Context) {
+	middleware.ClearAuthCookie(c, middleware.AdminTokenCookie)
+	response.Success(c, gin.H{"loggedOut": true})
 }
 
 func (h AdminAuthHandler) Profile(c *gin.Context) {

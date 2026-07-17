@@ -15,7 +15,7 @@ const CurrentUserKey = "currentUser"
 
 func RequireAuth(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claims, ok := parseBearerClaims(c, secret)
+		claims, ok := parseAuthClaims(c, secret, VisitorTokenCookie, AdminTokenCookie)
 		if !ok {
 			response.Error(c, http.StatusUnauthorized, 401, "未登录或 token 失效")
 			c.Abort()
@@ -29,7 +29,7 @@ func RequireAuth(secret string) gin.HandlerFunc {
 
 func RequireAdmin(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claims, ok := parseBearerClaims(c, secret)
+		claims, ok := parseAuthClaims(c, secret, AdminTokenCookie)
 		if !ok {
 			response.Error(c, http.StatusUnauthorized, 401, "未登录或 token 失效")
 			c.Abort()
@@ -47,16 +47,26 @@ func RequireAdmin(secret string) gin.HandlerFunc {
 	}
 }
 
-func parseBearerClaims(c *gin.Context, secret string) (*auth.Claims, bool) {
+// parseAuthClaims accepts Authorization Bearer token first, then httpOnly cookies.
+func parseAuthClaims(c *gin.Context, secret string, cookieNames ...string) (*auth.Claims, bool) {
 	header := c.GetHeader("Authorization")
-	if !strings.HasPrefix(header, "Bearer ") {
-		return nil, false
+	if strings.HasPrefix(header, "Bearer ") {
+		claims, err := auth.ParseToken(secret, strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
+		if err == nil {
+			return claims, true
+		}
 	}
 
-	claims, err := auth.ParseToken(secret, strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
-	if err != nil {
-		return nil, false
+	for _, name := range cookieNames {
+		raw, err := c.Cookie(name)
+		if err != nil || strings.TrimSpace(raw) == "" {
+			continue
+		}
+		claims, err := auth.ParseToken(secret, strings.TrimSpace(raw))
+		if err == nil {
+			return claims, true
+		}
 	}
 
-	return claims, true
+	return nil, false
 }

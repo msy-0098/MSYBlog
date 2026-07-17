@@ -15,6 +15,7 @@ import (
 
 	"masenyu.top/blog/backend/internal/auth"
 	"masenyu.top/blog/backend/internal/config"
+	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
 )
@@ -170,6 +171,7 @@ func (h VisitorAuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	middleware.SetAuthCookie(c, middleware.VisitorTokenCookie, token)
 	response.Success(c, VisitorAuthResponse{Token: token, User: visitorUserDTO(user)})
 }
 
@@ -198,7 +200,13 @@ func (h VisitorAuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	middleware.SetAuthCookie(c, middleware.VisitorTokenCookie, token)
 	response.Success(c, VisitorAuthResponse{Token: token, User: visitorUserDTO(user)})
+}
+
+func (h VisitorAuthHandler) Logout(c *gin.Context) {
+	middleware.ClearAuthCookie(c, middleware.VisitorTokenCookie)
+	response.Success(c, gin.H{"loggedOut": true})
 }
 
 func (h VisitorAuthHandler) ResetPassword(c *gin.Context) {

@@ -165,6 +165,42 @@ func TestAdminLoginRateLimitBlocksBursts(t *testing.T) {
 	}
 }
 
+func TestAdminLoginSetsHttpOnlyCookie(t *testing.T) {
+	engine := newAdminAuthTestEngine(t)
+
+	recorder := performJSONRequest(engine, http.MethodPost, "/api/admin/login", map[string]string{
+		"username": "masenyu812@gmail.com",
+		"password": "admin-test-password",
+	}, "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	cookies := recorder.Result().Cookies()
+	var adminCookie *http.Cookie
+	for _, cookie := range cookies {
+		if cookie.Name == "admin_token" {
+			adminCookie = cookie
+			break
+		}
+	}
+	if adminCookie == nil || adminCookie.Value == "" {
+		t.Fatal("expected admin_token cookie after login")
+	}
+	if !adminCookie.HttpOnly {
+		t.Fatal("expected admin_token cookie to be httpOnly")
+	}
+
+	// Cookie alone should authorize profile without Authorization header.
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/profile", nil)
+	req.AddCookie(adminCookie)
+	profile := httptest.NewRecorder()
+	engine.ServeHTTP(profile, req)
+	if profile.Code != http.StatusOK {
+		t.Fatalf("expected cookie-authenticated profile 200, got %d body %s", profile.Code, profile.Body.String())
+	}
+}
+
 func loginAndGetToken(t *testing.T, handler http.Handler) string {
 	t.Helper()
 
