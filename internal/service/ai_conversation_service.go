@@ -169,7 +169,12 @@ func (s *AIConversationService) StreamMessageWithStart(ctx context.Context, admi
 			return err
 		}
 
-		updates := map[string]any{"message_count": conversation.MessageCount + 2}
+		// Derive count from rows so finishStream / retries cannot double-apply +2.
+		var messageCount int64
+		if err := tx.Model(&model.AIMessage{}).Where("conversation_id = ?", conversation.ID).Count(&messageCount).Error; err != nil {
+			return err
+		}
+		updates := map[string]any{"message_count": messageCount}
 		if conversation.TitleMode == model.AIConversationTitleModeAuto {
 			updates["title"] = autoConversationTitle(content)
 			conversation.Title = updates["title"].(string)
@@ -177,7 +182,7 @@ func (s *AIConversationService) StreamMessageWithStart(ctx context.Context, admi
 		if err := tx.Model(&conversation).Updates(updates).Error; err != nil {
 			return err
 		}
-		conversation.MessageCount += 2
+		conversation.MessageCount = int(messageCount)
 		return nil
 	}); err != nil {
 		return model.AIMessage{}, err
@@ -317,9 +322,9 @@ func (s *AIConversationService) finishStream(ctx context.Context, conversation m
 		if messageResult.RowsAffected != 1 {
 			return ErrStreamResultDiscarded
 		}
+		// Only touch last_message_at here; message_count is set when messages are inserted.
 		conversationResult := tx.Model(&model.AIConversation{}).Where("id = ?", conversation.ID).Updates(map[string]any{
 			"last_message_at": now,
-			"message_count":   conversation.MessageCount,
 		})
 		if conversationResult.Error != nil {
 			return conversationResult.Error

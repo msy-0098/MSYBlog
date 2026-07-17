@@ -192,10 +192,7 @@ func TestAdminDashboardAndCommentManagement(t *testing.T) {
 				CommentCount int64 `json:"commentCount"`
 				VisitorCount int64 `json:"visitorCount"`
 			} `json:"stats"`
-			AIAnalysis struct {
-				Summary string `json:"summary"`
-				Mode    string `json:"mode"`
-			} `json:"aiAnalysis"`
+			// AI analysis lives on the dedicated insight endpoint, not dashboard.
 			RecentComments []struct {
 				Content string `json:"content"`
 			} `json:"recentComments"`
@@ -204,9 +201,6 @@ func TestAdminDashboardAndCommentManagement(t *testing.T) {
 	decodeJSON(t, dashboard, &dashboardBody)
 	if dashboardBody.Data.Stats.PostCount == 0 || dashboardBody.Data.Stats.CommentCount != 1 || dashboardBody.Data.Stats.VisitorCount != 1 {
 		t.Fatalf("unexpected dashboard stats: %#v", dashboardBody.Data.Stats)
-	}
-	if dashboardBody.Data.AIAnalysis.Summary == "" || dashboardBody.Data.AIAnalysis.Mode != "local" {
-		t.Fatalf("expected local ai analysis fallback, got %#v", dashboardBody.Data.AIAnalysis)
 	}
 	if len(dashboardBody.Data.RecentComments) != 1 {
 		t.Fatalf("expected one recent comment, got %#v", dashboardBody.Data.RecentComments)
