@@ -25,7 +25,7 @@ func New(deps Dependencies) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.New()
-	engine.Use(gin.Logger(), gin.Recovery(), middleware.NewAccessTracker(deps.Database).Middleware())
+	engine.Use(gin.Logger(), gin.Recovery(), middleware.NewAccessTracker(deps.Database).Middleware(), middleware.PublicReadCache())
 	engine.Static("/uploads", "uploads")
 
 	aiClient := deps.AIClient

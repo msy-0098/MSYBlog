@@ -95,7 +95,7 @@ func (h BlogHandler) ListPosts(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, result)
+	response.SuccessPublic(c, result, 30*time.Second)
 }
 
 func (h BlogHandler) GetPost(c *gin.Context) {
@@ -159,7 +159,7 @@ func (h BlogHandler) ListCategories(c *gin.Context) {
 		list = append(list, TaxonomyDTO{ID: category.ID, Name: category.Name, Slug: category.Slug, PostCount: count})
 	}
 
-	response.Success(c, ListDTO[TaxonomyDTO]{List: list})
+	response.SuccessPublic(c, ListDTO[TaxonomyDTO]{List: list}, 30*time.Second)
 }
 
 func (h BlogHandler) ListCategoryPosts(c *gin.Context) {
@@ -170,7 +170,7 @@ func (h BlogHandler) ListCategoryPosts(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, result)
+	response.SuccessPublic(c, result, 30*time.Second)
 }
 
 func (h BlogHandler) ListTags(c *gin.Context) {
@@ -193,7 +193,7 @@ func (h BlogHandler) ListTags(c *gin.Context) {
 		list = append(list, TaxonomyDTO{ID: tag.ID, Name: tag.Name, Slug: tag.Slug, PostCount: count})
 	}
 
-	response.Success(c, ListDTO[TaxonomyDTO]{List: list})
+	response.SuccessPublic(c, ListDTO[TaxonomyDTO]{List: list}, 30*time.Second)
 }
 
 func (h BlogHandler) ListTagPosts(c *gin.Context) {
@@ -204,7 +204,7 @@ func (h BlogHandler) ListTagPosts(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, result)
+	response.SuccessPublic(c, result, 30*time.Second)
 }
 
 func (h BlogHandler) Search(c *gin.Context) {
@@ -215,7 +215,7 @@ func (h BlogHandler) Search(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, result)
+	response.SuccessPublic(c, result, 30*time.Second)
 }
 
 func (h BlogHandler) Archive(c *gin.Context) {
@@ -251,7 +251,7 @@ func (h BlogHandler) Archive(c *gin.Context) {
 		years[yearPosition].Months[monthPosition].Posts = append(years[yearPosition].Months[monthPosition].Posts, postSummary(post))
 	}
 
-	response.Success(c, ListDTO[ArchiveYear]{List: years})
+	response.SuccessPublic(c, ListDTO[ArchiveYear]{List: years}, 30*time.Second)
 }
 
 func (h BlogHandler) ListProjects(c *gin.Context) {
@@ -269,7 +269,7 @@ func (h BlogHandler) ListProjects(c *gin.Context) {
 		list = append(list, projectDTO(project))
 	}
 
-	response.Success(c, ListDTO[ProjectDTO]{List: list})
+	response.SuccessPublic(c, ListDTO[ProjectDTO]{List: list}, 30*time.Second)
 }
 
 func (h BlogHandler) ListLinks(c *gin.Context) {
@@ -287,7 +287,7 @@ func (h BlogHandler) ListLinks(c *gin.Context) {
 		list = append(list, friendLinkDTO(link))
 	}
 
-	response.Success(c, ListDTO[FriendLinkDTO]{List: list})
+	response.SuccessPublic(c, ListDTO[FriendLinkDTO]{List: list}, 30*time.Second)
 }
 
 // LikePost records an IP-unique like for a published post.

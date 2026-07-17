@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -36,18 +37,18 @@ func NewSiteHandler(db *gorm.DB, cfg config.Config) SiteHandler {
 func (h SiteHandler) GetSite(c *gin.Context) {
 	settings, err := h.loadSettings()
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		response.Error(c, http.StatusInternalServerError, 500, "服务器错误")
 		return
 	}
 
-	response.Success(c, SiteProfile{
+	response.SuccessPublic(c, SiteProfile{
 		SiteTitle:   firstNonEmpty(settings["siteTitle"], h.fallback.SiteTitle),
 		Subtitle:    firstNonEmpty(settings["subtitle"], h.fallback.Subtitle),
 		Owner:       firstNonEmpty(settings["owner"], h.fallback.Owner),
 		Domain:      firstNonEmpty(settings["domain"], h.fallback.Domain),
 		Description: firstNonEmpty(settings["description"], h.fallback.Description),
 		NavItems:    navItems(settings["navItems"], h.fallback.NavItems),
-	})
+	}, 60*time.Second)
 }
 
 func (h SiteHandler) loadSettings() (map[string]string, error) {

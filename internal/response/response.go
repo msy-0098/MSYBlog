@@ -2,6 +2,8 @@ package response
 
 import (
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +20,20 @@ func Success(c *gin.Context, data any) {
 		Message: "success",
 		Data:    data,
 	})
+}
+
+// SuccessPublic marks a successful public GET response as short-lived cacheable.
+// Keep TTL conservative so admin content updates remain visible without purge tooling.
+func SuccessPublic(c *gin.Context, data any, maxAge time.Duration) {
+	if maxAge <= 0 {
+		maxAge = 30 * time.Second
+	}
+	seconds := int(maxAge.Seconds())
+	c.Header(
+		"Cache-Control",
+		"public, max-age="+strconv.Itoa(seconds)+", stale-while-revalidate="+strconv.Itoa(seconds*2),
+	)
+	Success(c, data)
 }
 
 func Error(c *gin.Context, httpStatus int, code int, message string) {
