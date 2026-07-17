@@ -1,9 +1,11 @@
 package database
 
 import (
+	"database/sql"
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"gorm.io/driver/postgres"
@@ -12,6 +14,24 @@ import (
 	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/model"
 )
+
+// Shared with router/service packages.
+const postgresTestLockKey int64 = 81220260709
+
+// In-process reentrant gate so nested helpers in the same *testing.T do not open
+// a second session-level advisory lock (that deadlocks on the same key).
+var postgresTestGate = struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	owner  *testing.T
+	depth  int
+	lockDB *gorm.DB
+	sqlDB  *sql.DB
+}{}
+
+func init() {
+	postgresTestGate.cond = sync.NewCond(&postgresTestGate.mu)
+}
 
 func TestAutoMigrateCreatesOnlySchemaIncludingAIModels(t *testing.T) {
 	db := testPostgresDatabase(t)
@@ -238,6 +258,73 @@ func TestOpenRejectsLegacyDatabaseDrivers(t *testing.T) {
 	}
 }
 
+func lockPostgresTestDatabase(t *testing.T, dsn string) {
+	t.Helper()
+
+	postgresTestGate.mu.Lock()
+	for postgresTestGate.owner != nil && postgresTestGate.owner != t {
+		postgresTestGate.cond.Wait()
+	}
+	if postgresTestGate.owner == t {
+		postgresTestGate.depth++
+		postgresTestGate.mu.Unlock()
+		t.Cleanup(func() { releasePostgresTestDatabase(t) })
+		return
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		postgresTestGate.mu.Unlock()
+		t.Fatalf("open lock database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		postgresTestGate.mu.Unlock()
+		t.Fatalf("get lock sql database: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	if err := db.Exec("SET lock_timeout TO '15s'").Error; err != nil {
+		_ = sqlDB.Close()
+		postgresTestGate.mu.Unlock()
+		t.Fatalf("set lock timeout: %v", err)
+	}
+	if err := db.Exec("SELECT pg_advisory_lock(?)", postgresTestLockKey).Error; err != nil {
+		_ = sqlDB.Close()
+		postgresTestGate.mu.Unlock()
+		t.Fatalf("lock postgres test database: %v", err)
+	}
+
+	postgresTestGate.owner = t
+	postgresTestGate.depth = 1
+	postgresTestGate.lockDB = db
+	postgresTestGate.sqlDB = sqlDB
+	postgresTestGate.mu.Unlock()
+	t.Cleanup(func() { releasePostgresTestDatabase(t) })
+}
+
+func releasePostgresTestDatabase(t *testing.T) {
+	postgresTestGate.mu.Lock()
+	defer postgresTestGate.mu.Unlock()
+	if postgresTestGate.owner != t {
+		return
+	}
+	postgresTestGate.depth--
+	if postgresTestGate.depth > 0 {
+		return
+	}
+	if postgresTestGate.lockDB != nil {
+		_ = postgresTestGate.lockDB.Exec("SELECT pg_advisory_unlock(?)", postgresTestLockKey).Error
+	}
+	if postgresTestGate.sqlDB != nil {
+		_ = postgresTestGate.sqlDB.Close()
+	}
+	postgresTestGate.owner = nil
+	postgresTestGate.lockDB = nil
+	postgresTestGate.sqlDB = nil
+	postgresTestGate.cond.Signal()
+}
+
 func testPostgresDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -245,6 +332,9 @@ func testPostgresDatabase(t *testing.T) *gorm.DB {
 	if dsn == "" {
 		t.Skip("BLOG_TEST_DATABASE_DSN is required for PostgreSQL database integration tests")
 	}
+
+	// Cross-package isolation; reentrant within the same *testing.T.
+	lockPostgresTestDatabase(t, dsn)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -254,17 +344,12 @@ func testPostgresDatabase(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("get sql database: %v", err)
 	}
-	// Keep lock + schema work on one session connection.
+	// Keep schema work on one session connection.
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 	t.Cleanup(func() {
-		_ = db.Exec("SELECT pg_advisory_unlock(?)", int64(81220260709)).Error
 		_ = sqlDB.Close()
 	})
-
-	if err := db.Exec("SELECT pg_advisory_lock(?)", int64(81220260709)).Error; err != nil {
-		t.Fatalf("lock postgres test database: %v", err)
-	}
 
 	if err := db.Exec(`
 		DROP TABLE IF EXISTS

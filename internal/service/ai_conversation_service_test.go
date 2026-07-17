@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -77,6 +78,126 @@ func newAIConversationService(t *testing.T, client ai.ChatClient) (*AIConversati
 	return NewAIConversationService(db, client, "deepseek-chat"), db, admin
 }
 
+// Shared with database/router packages.
+const postgresTestLockKey int64 = 81220260709
+
+// In-process reentrant gate: nested helpers in the same *testing.T must not open
+// a second session-level advisory lock.
+var postgresTestGate = struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	owner  *testing.T
+	depth  int
+	lockDB *gorm.DB
+	sqlDB  *sql.DB
+}{}
+
+func init() {
+	postgresTestGate.cond = sync.NewCond(&postgresTestGate.mu)
+}
+
+func lockPostgresTestDatabase(t *testing.T, dsn string) {
+	t.Helper()
+
+	postgresTestGate.mu.Lock()
+	for postgresTestGate.owner != nil && postgresTestGate.owner != t {
+		postgresTestGate.cond.Wait()
+	}
+	if postgresTestGate.owner == t {
+		postgresTestGate.depth++
+		postgresTestGate.mu.Unlock()
+		t.Cleanup(func() { releasePostgresTestDatabase(t) })
+		return
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		postgresTestGate.mu.Unlock()
+		t.Fatalf("open lock database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		postgresTestGate.mu.Unlock()
+		t.Fatalf("get lock sql database: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	if err := db.Exec("SET lock_timeout TO '15s'").Error; err != nil {
+		_ = sqlDB.Close()
+		postgresTestGate.mu.Unlock()
+		t.Fatalf("set lock timeout: %v", err)
+	}
+	if err := db.Exec("SELECT pg_advisory_lock(?)", postgresTestLockKey).Error; err != nil {
+		_ = sqlDB.Close()
+		postgresTestGate.mu.Unlock()
+		t.Fatalf("lock postgres test database: %v", err)
+	}
+
+	postgresTestGate.owner = t
+	postgresTestGate.depth = 1
+	postgresTestGate.lockDB = db
+	postgresTestGate.sqlDB = sqlDB
+	postgresTestGate.mu.Unlock()
+	t.Cleanup(func() { releasePostgresTestDatabase(t) })
+}
+
+func releasePostgresTestDatabase(t *testing.T) {
+	postgresTestGate.mu.Lock()
+	defer postgresTestGate.mu.Unlock()
+	if postgresTestGate.owner != t {
+		return
+	}
+	postgresTestGate.depth--
+	if postgresTestGate.depth > 0 {
+		return
+	}
+	if postgresTestGate.lockDB != nil {
+		_ = postgresTestGate.lockDB.Exec("SELECT pg_advisory_unlock(?)", postgresTestLockKey).Error
+	}
+	if postgresTestGate.sqlDB != nil {
+		_ = postgresTestGate.sqlDB.Close()
+	}
+	postgresTestGate.owner = nil
+	postgresTestGate.lockDB = nil
+	postgresTestGate.sqlDB = nil
+	postgresTestGate.cond.Signal()
+}
+
+func resetServiceSchema(t *testing.T, dsn string) {
+	t.Helper()
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open reset database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get reset sql database: %v", err)
+	}
+	defer sqlDB.Close()
+	if err := db.Exec(`
+		DROP TABLE IF EXISTS
+			ai_messages,
+			ai_conversations,
+			post_tags,
+			post_likes,
+			comments,
+			posts,
+			categories,
+			tags,
+			projects,
+			friend_links,
+			uploads,
+			email_verification_codes,
+			access_logs,
+			ip_bans,
+			users,
+			site_settings
+		CASCADE
+	`).Error; err != nil {
+		t.Fatalf("drop test tables: %v", err)
+	}
+}
+
 func testServiceDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("BLOG_TEST_DATABASE_DSN")
@@ -85,24 +206,10 @@ func testServiceDatabase(t *testing.T) *gorm.DB {
 	}
 
 	// Serialize against database/router package tests that share public schema.
-	lockDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open lock database: %v", err)
-	}
-	lockSQL, err := lockDB.DB()
-	if err != nil {
-		t.Fatalf("get lock sql database: %v", err)
-	}
-	lockSQL.SetMaxOpenConns(1)
-	lockSQL.SetMaxIdleConns(1)
-	if err := lockDB.Exec("SELECT pg_advisory_lock(?)", int64(81220260709)).Error; err != nil {
-		_ = lockSQL.Close()
-		t.Fatalf("lock postgres test database: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = lockDB.Exec("SELECT pg_advisory_unlock(?)", int64(81220260709)).Error
-		_ = lockSQL.Close()
-	})
+	// Reentrant within the same *testing.T so nested helpers do not deadlock.
+	lockPostgresTestDatabase(t, dsn)
+	// Fresh schema every test: residual rows/counters make MessageCount assertions flaky.
+	resetServiceSchema(t, dsn)
 
 	cfg, err := config.Load("__missing_service_test_config__.yaml")
 	if err != nil {
