@@ -254,16 +254,17 @@ func testPostgresDatabase(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("get sql database: %v", err)
 	}
+	// Keep lock + schema work on one session connection.
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 	t.Cleanup(func() {
+		_ = db.Exec("SELECT pg_advisory_unlock(?)", int64(81220260709)).Error
 		_ = sqlDB.Close()
 	})
 
 	if err := db.Exec("SELECT pg_advisory_lock(?)", int64(81220260709)).Error; err != nil {
 		t.Fatalf("lock postgres test database: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = db.Exec("SELECT pg_advisory_unlock(?)", int64(81220260709)).Error
-	})
 
 	if err := db.Exec(`
 		DROP TABLE IF EXISTS

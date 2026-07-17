@@ -12,6 +12,9 @@ import (
 	"masenyu.top/blog/backend/internal/config"
 )
 
+// Shared with database/service packages: session advisory lock for public schema tests.
+const postgresTestLockKey int64 = 81220260709
+
 type testSQLDatabase struct {
 	db   *sql.DB
 	once sync.Once
@@ -39,14 +42,14 @@ func testDatabaseConfig(t *testing.T) config.Config {
 	}
 	cfg.Database.Driver = "postgres"
 	cfg.Database.DSN = dsn
-	lockPostgresTestDatabase(t, cfg)
+	lockPostgresTestDatabase(t, dsn)
 	return cfg
 }
 
-func lockPostgresTestDatabase(t *testing.T, cfg config.Config) {
+func lockPostgresTestDatabase(t *testing.T, dsn string) {
 	t.Helper()
 
-	db, err := gorm.Open(postgres.Open(cfg.Database.DSN), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open lock database: %v", err)
 	}
@@ -54,14 +57,18 @@ func lockPostgresTestDatabase(t *testing.T, cfg config.Config) {
 	if err != nil {
 		t.Fatalf("get lock sql database: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = db.Exec("SELECT pg_advisory_unlock(?)", int64(81220260709)).Error
-		_ = sqlDB.Close()
-	})
+	// Session-level advisory locks must stay on one connection.
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
-	if err := db.Exec("SELECT pg_advisory_lock(?)", int64(81220260709)).Error; err != nil {
+	if err := db.Exec("SELECT pg_advisory_lock(?)", postgresTestLockKey).Error; err != nil {
+		_ = sqlDB.Close()
 		t.Fatalf("lock postgres test database: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = db.Exec("SELECT pg_advisory_unlock(?)", postgresTestLockKey).Error
+		_ = sqlDB.Close()
+	})
 }
 
 func resetPostgresSchema(t *testing.T, cfg config.Config) {

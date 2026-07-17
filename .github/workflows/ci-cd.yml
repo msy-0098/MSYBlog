@@ -1,4 +1,4 @@
-﻿name: Backend CI/CD
+name: Backend CI/CD
 
 on:
   pull_request:
@@ -50,7 +50,7 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test ./...
+        run: go test -p 1 ./...
 
       - name: Build migration command
         run: CGO_ENABLED=0 go build ./cmd/migrate-sqlite-to-postgres

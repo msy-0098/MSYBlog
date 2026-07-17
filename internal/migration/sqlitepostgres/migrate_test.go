@@ -32,6 +32,22 @@ func TestDigestColumnsCoverSecurityCriticalFields(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalDigestValueNormalizesBooleanForms(t *testing.T) {
+	if got, want := canonicalDigestValue(true), "1"; got != want {
+		t.Fatalf("bool true = %q, want %q", got, want)
+	}
+	if got, want := canonicalDigestValue(false), "0"; got != want {
+		t.Fatalf("bool false = %q, want %q", got, want)
+	}
+	if got, want := canonicalDigestValue(int64(1)), "1"; got != want {
+		t.Fatalf("int64 true = %q, want %q", got, want)
+	}
+	if got, want := canonicalDigestValue(int64(0)), "0"; got != want {
+		t.Fatalf("int64 false = %q, want %q", got, want)
+	}
+}
+
 func TestCanonicalDigestValueNormalizesTimestampPrecision(t *testing.T) {
 	value := time.Date(2026, 7, 14, 12, 0, 0, 123456789, time.FixedZone("UTC+8", 8*60*60))
 	if got, want := canonicalDigestValue(value), "2026-07-14T04:00:00.123456Z"; got != want {

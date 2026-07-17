@@ -299,17 +299,16 @@ func (s *AIConversationService) contextMessages(ctx context.Context, conversatio
 
 func (s *AIConversationService) finishStream(ctx context.Context, conversation model.AIConversation, assistant model.AIMessage, content, status string, streamErr error) (model.AIMessage, error) {
 	now := time.Now()
+	errorMessage := ""
+	if streamErr != nil {
+		errorMessage = streamErr.Error()
+	}
 	updates := map[string]any{
 		"content":       content,
 		"status":        status,
-		"error_message": "",
+		"error_message": errorMessage,
 	}
-	if streamErr != nil {
-		updates["error_message"] = streamErr.Error()
-	}
-	assistant.Content = content
-	assistant.Status = status
-	assistant.ErrorMessage = updates["error_message"].(string)
+	// Persist first; only then report terminal status to callers.
 	if err := s.db.WithContext(context.WithoutCancel(ctx)).Transaction(func(tx *gorm.DB) error {
 		messageResult := tx.Model(&model.AIMessage{}).Where("id = ?", assistant.ID).Updates(updates)
 		if messageResult.Error != nil {
@@ -331,10 +330,21 @@ func (s *AIConversationService) finishStream(ctx context.Context, conversation m
 		return nil
 	}); err != nil {
 		if errors.Is(err, ErrStreamResultDiscarded) {
+			assistant.Content = content
+			// Never report completed when the row was discarded mid-stream.
+			if status == model.AIMessageStatusCompleted {
+				assistant.Status = model.AIMessageStatusAborted
+			} else if status != "" {
+				assistant.Status = status
+			}
+			assistant.ErrorMessage = ErrStreamResultDiscarded.Error()
 			return assistant, err
 		}
 		return assistant, fmt.Errorf("persist AI stream result: %w", err)
 	}
+	assistant.Content = content
+	assistant.Status = status
+	assistant.ErrorMessage = errorMessage
 	if streamErr != nil {
 		return assistant, streamErr
 	}

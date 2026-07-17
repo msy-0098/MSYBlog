@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"masenyu.top/blog/backend/internal/ai"
@@ -82,6 +83,27 @@ func testServiceDatabase(t *testing.T) *gorm.DB {
 	if dsn == "" {
 		t.Skip("BLOG_TEST_DATABASE_DSN is required for PostgreSQL service integration tests")
 	}
+
+	// Serialize against database/router package tests that share public schema.
+	lockDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open lock database: %v", err)
+	}
+	lockSQL, err := lockDB.DB()
+	if err != nil {
+		t.Fatalf("get lock sql database: %v", err)
+	}
+	lockSQL.SetMaxOpenConns(1)
+	lockSQL.SetMaxIdleConns(1)
+	if err := lockDB.Exec("SELECT pg_advisory_lock(?)", int64(81220260709)).Error; err != nil {
+		_ = lockSQL.Close()
+		t.Fatalf("lock postgres test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = lockDB.Exec("SELECT pg_advisory_unlock(?)", int64(81220260709)).Error
+		_ = lockSQL.Close()
+	})
+
 	cfg, err := config.Load("__missing_service_test_config__.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)

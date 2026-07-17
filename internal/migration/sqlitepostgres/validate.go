@@ -171,6 +171,11 @@ func canonicalDigestValue(value any) string {
 			return "<nil>"
 		}
 		return typed.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
+	case bool:
+		if typed {
+			return "1"
+		}
+		return "0"
 	default:
 		return fmt.Sprint(typed)
 	}
