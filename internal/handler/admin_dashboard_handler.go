@@ -57,18 +57,17 @@ func (h AdminDashboardHandler) GetDashboard(c *gin.Context) {
 	}
 	analytics, err := (AdminInsightHandler{db: h.db}).readAnalytics()
 	if err != nil {
-		internalError(c)
-		return
+		// Keep dashboard usable even when access log analytics are unavailable.
+		analytics = AnalyticsDTO{}
 	}
 	trends, err := h.readTrends(14)
 	if err != nil {
-		internalError(c)
-		return
+		// Trends are best-effort; never block the admin shell on empty history.
+		trends = TrendsDTO{Days: 14, Points: []TrendPointDTO{}}
 	}
 	recentComments, err := h.readRecentComments()
 	if err != nil {
-		internalError(c)
-		return
+		recentComments = []CommentDTO{}
 	}
 	response.Success(c, DashboardDTO{
 		Stats:          stats,
