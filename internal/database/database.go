@@ -15,8 +15,9 @@ import (
 )
 
 type Options struct {
-	DSN    string
-	Config config.Config
+	DSN      string
+	Config   config.Config
+	SkipSeed bool
 }
 
 func Open(options Options) (*gorm.DB, error) {
@@ -53,7 +54,7 @@ func Open(options Options) (*gorm.DB, error) {
 	if err := AutoMigrate(db); err != nil {
 		return nil, err
 	}
-	if bootstrap {
+	if bootstrap && !options.SkipSeed {
 		if err := SeedDefaults(db, options.Config); err != nil {
 			return nil, err
 		}

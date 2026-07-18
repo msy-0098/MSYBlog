@@ -38,5 +38,8 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 	if err := SeedDefaultSiteSettings(db); err != nil {
 		return err
 	}
-	return SeedDefaultBlogContent(db)
+	if err := SeedDefaultBlogContent(db); err != nil {
+		return err
+	}
+	return SeedCareerTimelinePosts(db)
 }
