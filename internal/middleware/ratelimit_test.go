@@ -44,19 +44,30 @@ func TestRateLimiterAllowReturnsDecisionAndRetryAfter(t *testing.T) {
 }
 
 func TestRateLimiterAllowsDisabledLimitAndDifferentKeys(t *testing.T) {
-	rl := NewRateLimiter()
-	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
-	rl.now = func() time.Time { return now }
-
-	decision := rl.Allow("disabled", 0, time.Minute)
-	if !decision.Allowed || decision.RetryAfter != 0 {
-		t.Fatalf("expected disabled limiter to allow request, got %+v", decision)
+	testCases := []struct {
+		name  string
+		limit int
+	}{
+		{name: "zero", limit: 0},
+		{name: "negative", limit: -1},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rl := NewRateLimiter()
+			for call := 1; call <= 2; call++ {
+				decision := rl.Allow("disabled", testCase.limit, time.Minute)
+				if !decision.Allowed || decision.RetryAfter != 0 {
+					t.Fatalf("expected disabled limiter call %d to be allowed, got %+v", call, decision)
+				}
+			}
+		})
 	}
 
-	if decision = rl.Allow("first-key", 1, time.Minute); !decision.Allowed {
+	rl := NewRateLimiter()
+	if decision := rl.Allow("first-key", 1, time.Minute); !decision.Allowed {
 		t.Fatalf("expected first key to be allowed, got %+v", decision)
 	}
-	if decision = rl.Allow("second-key", 1, time.Minute); !decision.Allowed {
+	if decision := rl.Allow("second-key", 1, time.Minute); !decision.Allowed {
 		t.Fatalf("expected different key to have an independent window, got %+v", decision)
 	}
 }
@@ -137,6 +148,53 @@ func TestRateLimiterRetryAfterUsesEarliestValidHitAfterClockRollback(t *testing.
 		t.Fatalf("expected retry after 40s from true earliest hit, got %s", decision.RetryAfter)
 	}
 }
+
+func TestRateLimiterMiddlewareReturnsMinimumRetryAfterWithoutCallingHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rl := NewRateLimiter()
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	rl.now = func() time.Time { return now }
+
+	engine := gin.New()
+	handlerCalls := 0
+	engine.POST("/login", rl.Limit(1, time.Second), func(c *gin.Context) {
+		handlerCalls++
+		c.Status(http.StatusOK)
+	})
+
+	first := httptest.NewRequest(http.MethodPost, "/login", nil)
+	first.RemoteAddr = "203.0.113.11:1234"
+	engine.ServeHTTP(httptest.NewRecorder(), first)
+	if handlerCalls != 1 {
+		t.Fatalf("expected downstream handler called once after allowed request, got %d", handlerCalls)
+	}
+
+	now = now.Add(500 * time.Millisecond)
+	second := httptest.NewRequest(http.MethodPost, "/login", nil)
+	second.RemoteAddr = "203.0.113.11:1234"
+	secondRec := httptest.NewRecorder()
+	engine.ServeHTTP(secondRec, second)
+
+	if secondRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second status 429, got %d body %s", secondRec.Code, secondRec.Body.String())
+	}
+	if handlerCalls != 1 {
+		t.Fatalf("expected blocked request not to call downstream handler, got %d calls", handlerCalls)
+	}
+
+	var body struct {
+		Data struct {
+			RetryAfter int `json:"retryAfter"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(secondRec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.RetryAfter != 1 {
+		t.Fatalf("expected minimum retryAfter of 1 second, got %d", body.Data.RetryAfter)
+	}
+}
+
 func TestRateLimiterMiddlewareReturns429WithRoundedRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rl := NewRateLimiter()
