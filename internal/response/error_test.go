@@ -23,6 +23,10 @@ func TestErrorWithDataWritesStatusCodeAndData(t *testing.T) {
 		gin.H{"retryAfter": 2},
 	)
 
+	if !context.IsAborted() {
+		t.Fatal("expected context to be aborted")
+	}
+
 	if recorder.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected status 429, got %d", recorder.Code)
 	}

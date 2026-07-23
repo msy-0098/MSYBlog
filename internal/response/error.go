@@ -11,7 +11,7 @@ func Error(c *gin.Context, httpStatus int, code int, message string) {
 }
 
 func ErrorWithData(c *gin.Context, status int, message string, data any) {
-	c.JSON(status, Envelope{
+	c.AbortWithStatusJSON(status, Envelope{
 		Code:    status,
 		Message: message,
 		Data:    data,

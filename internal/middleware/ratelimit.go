@@ -122,7 +122,6 @@ func (rl *RateLimiter) Limit(limit int, window time.Duration) gin.HandlerFunc {
 				"请求过于频繁，请稍后再试",
 				gin.H{"retryAfter": retryAfter},
 			)
-			c.Abort()
 			return
 		}
 
