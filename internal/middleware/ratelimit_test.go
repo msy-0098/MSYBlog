@@ -72,6 +72,79 @@ func TestRateLimiterAllowsDisabledLimitAndDifferentKeys(t *testing.T) {
 	}
 }
 
+func TestRateLimiterBoundsUnknownKeysAndKeepsExistingKeyUsable(t *testing.T) {
+	rl := NewRateLimiter()
+	rl.maxKeys = 1
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	rl.now = func() time.Time { return now }
+
+	if decision := rl.Allow("active", 3, time.Minute); !decision.Allowed {
+		t.Fatalf("expected first active key request allowed, got %+v", decision)
+	}
+	if len(rl.hits) != 1 {
+		t.Fatalf("expected one stored key, got %d", len(rl.hits))
+	}
+
+	firstUnknown := rl.Allow("unknown-a", 1, time.Minute)
+	if firstUnknown.Allowed || firstUnknown.RetryAfter <= 0 {
+		t.Fatalf("expected unknown key rejected with positive retry delay, got %+v", firstUnknown)
+	}
+	if len(rl.hits) != 1 {
+		t.Fatalf("expected key storage to remain capped at one, got %d", len(rl.hits))
+	}
+	if _, exists := rl.hits["unknown-a"]; exists {
+		t.Fatal("expected rejected unknown key not to be stored")
+	}
+	scheduledPrune := rl.nextPrune
+	if !scheduledPrune.After(now) {
+		t.Fatalf("expected next prune to be scheduled after capacity cleanup, got %s", scheduledPrune)
+	}
+
+	now = now.Add(rateLimiterPruneInterval / 2)
+	secondUnknown := rl.Allow("unknown-b", 1, time.Minute)
+	if secondUnknown.Allowed || secondUnknown.RetryAfter <= 0 {
+		t.Fatalf("expected repeated unknown key rejected with positive retry delay, got %+v", secondUnknown)
+	}
+	if len(rl.hits) != 1 {
+		t.Fatalf("expected repeated unknown keys not to grow storage, got %d", len(rl.hits))
+	}
+	if !rl.nextPrune.Equal(scheduledPrune) {
+		t.Fatalf("expected repeated unknown key before cleanup interval not to reschedule prune, got %s", rl.nextPrune)
+	}
+
+	if decision := rl.Allow("active", 3, time.Minute); !decision.Allowed {
+		t.Fatalf("expected existing key to use its own limit while storage is full, got %+v", decision)
+	}
+	if len(rl.hits) != 1 {
+		t.Fatalf("expected existing key request not to grow storage, got %d", len(rl.hits))
+	}
+}
+
+func TestRateLimiterRecoversCapacityAfterStoredExpiry(t *testing.T) {
+	rl := NewRateLimiter()
+	rl.maxKeys = 1
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	rl.now = func() time.Time { return now }
+
+	if decision := rl.Allow("expired", 1, 100*time.Millisecond); !decision.Allowed {
+		t.Fatalf("expected initial key allowed, got %+v", decision)
+	}
+
+	now = now.Add(2 * time.Second)
+	if decision := rl.Allow("replacement", 1, time.Hour); !decision.Allowed {
+		t.Fatalf("expected replacement key allowed after old expiry, got %+v", decision)
+	}
+	if len(rl.hits) != 1 {
+		t.Fatalf("expected storage to remain capped at one key, got %d", len(rl.hits))
+	}
+	if _, exists := rl.hits["expired"]; exists {
+		t.Fatal("expected expired key to be removed")
+	}
+	if _, exists := rl.hits["replacement"]; !exists {
+		t.Fatal("expected replacement key to be stored")
+	}
+}
+
 func TestRateLimiterPrunesExpiredKeys(t *testing.T) {
 	rl := NewRateLimiter()
 	rl.maxKeys = 1

@@ -11,6 +11,8 @@ import (
 	"masenyu.top/blog/backend/internal/response"
 )
 
+const rateLimiterPruneInterval = time.Second
+
 // LimitDecision describes whether a request may proceed and, when rejected,
 // how long remains until the earliest effective hit leaves the window.
 type LimitDecision struct {
@@ -21,10 +23,11 @@ type LimitDecision struct {
 // RateLimiter is a process-local fixed-window limiter keyed by caller + route.
 // Good enough for a single-instance blog service; not shared across processes.
 type RateLimiter struct {
-	mu      sync.Mutex
-	hits    map[string][]time.Time
-	now     func() time.Time
-	maxKeys int
+	mu        sync.Mutex
+	hits      map[string][]time.Time
+	now       func() time.Time
+	maxKeys   int
+	nextPrune time.Time
 }
 
 func NewRateLimiter() *RateLimiter {
@@ -44,15 +47,28 @@ func (rl *RateLimiter) Allow(key string, limit int, window time.Duration) LimitD
 	defer rl.mu.Unlock()
 
 	now := rl.now()
-	cutoff := now.Add(-window)
+	if _, exists := rl.hits[key]; !exists && len(rl.hits) >= rl.maxKeys {
+		if !now.Before(rl.nextPrune) {
+			rl.pruneLocked(now)
+			rl.nextPrune = now.Add(rateLimiterPruneInterval)
+		}
+		if len(rl.hits) >= rl.maxKeys {
+			retryAfter := rl.nextPrune.Sub(now)
+			if retryAfter <= 0 {
+				retryAfter = time.Nanosecond
+			}
+			return LimitDecision{RetryAfter: retryAfter}
+		}
+	}
+
 	valid := rl.hits[key][:0]
 	var earliest time.Time
 	hasEarliest := false
-	for _, at := range rl.hits[key] {
-		if at.After(cutoff) {
-			valid = append(valid, at)
-			if !hasEarliest || at.Before(earliest) {
-				earliest = at
+	for _, expiresAt := range rl.hits[key] {
+		if expiresAt.After(now) {
+			valid = append(valid, expiresAt)
+			if !hasEarliest || expiresAt.Before(earliest) {
+				earliest = expiresAt
 				hasEarliest = true
 			}
 		}
@@ -62,23 +78,20 @@ func (rl *RateLimiter) Allow(key string, limit int, window time.Duration) LimitD
 		rl.hits[key] = valid
 		return LimitDecision{
 			Allowed:    false,
-			RetryAfter: earliest.Add(window).Sub(now),
+			RetryAfter: earliest.Sub(now),
 		}
 	}
 
-	rl.hits[key] = append(valid, now)
-	if len(rl.hits) > rl.maxKeys {
-		rl.pruneLocked(cutoff)
-	}
+	rl.hits[key] = append(valid, now.Add(window))
 	return LimitDecision{Allowed: true}
 }
 
-func (rl *RateLimiter) pruneLocked(cutoff time.Time) {
-	for key, times := range rl.hits {
-		valid := times[:0]
-		for _, at := range times {
-			if at.After(cutoff) {
-				valid = append(valid, at)
+func (rl *RateLimiter) pruneLocked(now time.Time) {
+	for key, expirations := range rl.hits {
+		valid := expirations[:0]
+		for _, expiresAt := range expirations {
+			if expiresAt.After(now) {
+				valid = append(valid, expiresAt)
 			}
 		}
 		if len(valid) == 0 {
