@@ -35,11 +35,3 @@ func SuccessPublic(c *gin.Context, data any, maxAge time.Duration) {
 	)
 	Success(c, data)
 }
-
-func Error(c *gin.Context, httpStatus int, code int, message string) {
-	c.JSON(httpStatus, Envelope{
-		Code:    code,
-		Message: message,
-		Data:    nil,
-	})
-}
