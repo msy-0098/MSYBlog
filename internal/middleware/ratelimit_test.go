@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -83,6 +84,59 @@ func TestRateLimiterPrunesExpiredKeys(t *testing.T) {
 	}
 }
 
+func TestRateLimiterAllowsNonPositiveWindow(t *testing.T) {
+	testCases := []struct {
+		name   string
+		window time.Duration
+	}{
+		{name: "zero", window: 0},
+		{name: "negative", window: -time.Second},
+		{name: "minimum duration", window: time.Duration(math.MinInt64)},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rl := NewRateLimiter()
+			now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+			rl.now = func() time.Time { return now }
+
+			first := rl.Allow("k", 1, testCase.window)
+			if !first.Allowed || first.RetryAfter != 0 {
+				t.Fatalf("expected first request allowed, got %+v", first)
+			}
+
+			second := rl.Allow("k", 1, testCase.window)
+			if !second.Allowed || second.RetryAfter != 0 {
+				t.Fatalf("expected non-positive window to remain unlimited, got %+v", second)
+			}
+		})
+	}
+}
+
+func TestRateLimiterRetryAfterUsesEarliestValidHitAfterClockRollback(t *testing.T) {
+	rl := NewRateLimiter()
+	base := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	now := base.Add(10 * time.Second)
+	rl.now = func() time.Time { return now }
+
+	if decision := rl.Allow("k", 2, time.Minute); !decision.Allowed {
+		t.Fatalf("expected first request allowed, got %+v", decision)
+	}
+
+	now = base
+	if decision := rl.Allow("k", 2, time.Minute); !decision.Allowed {
+		t.Fatalf("expected request after clock rollback allowed, got %+v", decision)
+	}
+
+	now = base.Add(20 * time.Second)
+	decision := rl.Allow("k", 2, time.Minute)
+	if decision.Allowed {
+		t.Fatalf("expected request blocked, got %+v", decision)
+	}
+	if decision.RetryAfter != 40*time.Second {
+		t.Fatalf("expected retry after 40s from true earliest hit, got %s", decision.RetryAfter)
+	}
+}
 func TestRateLimiterMiddlewareReturns429WithRoundedRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rl := NewRateLimiter()
@@ -90,7 +144,9 @@ func TestRateLimiterMiddlewareReturns429WithRoundedRetryAfter(t *testing.T) {
 	rl.now = func() time.Time { return now }
 
 	engine := gin.New()
+	handlerCalls := 0
 	engine.POST("/login", rl.Limit(1, 1500*time.Millisecond), func(c *gin.Context) {
+		handlerCalls++
 		c.Status(http.StatusOK)
 	})
 
@@ -101,6 +157,9 @@ func TestRateLimiterMiddlewareReturns429WithRoundedRetryAfter(t *testing.T) {
 	if firstRec.Code != http.StatusOK {
 		t.Fatalf("expected first status 200, got %d", firstRec.Code)
 	}
+	if handlerCalls != 1 {
+		t.Fatalf("expected downstream handler called once after allowed request, got %d", handlerCalls)
+	}
 
 	now = now.Add(100 * time.Millisecond)
 	second := httptest.NewRequest(http.MethodPost, "/login", nil)
@@ -109,6 +168,9 @@ func TestRateLimiterMiddlewareReturns429WithRoundedRetryAfter(t *testing.T) {
 	engine.ServeHTTP(secondRec, second)
 	if secondRec.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected second status 429, got %d body %s", secondRec.Code, secondRec.Body.String())
+	}
+	if handlerCalls != 1 {
+		t.Fatalf("expected blocked request not to call downstream handler, got %d calls", handlerCalls)
 	}
 
 	var body struct {

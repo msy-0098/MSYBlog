@@ -36,7 +36,7 @@ func NewRateLimiter() *RateLimiter {
 }
 
 func (rl *RateLimiter) Allow(key string, limit int, window time.Duration) LimitDecision {
-	if limit <= 0 {
+	if limit <= 0 || window <= 0 {
 		return LimitDecision{Allowed: true}
 	}
 
@@ -46,9 +46,15 @@ func (rl *RateLimiter) Allow(key string, limit int, window time.Duration) LimitD
 	now := rl.now()
 	cutoff := now.Add(-window)
 	valid := rl.hits[key][:0]
+	var earliest time.Time
+	hasEarliest := false
 	for _, at := range rl.hits[key] {
 		if at.After(cutoff) {
 			valid = append(valid, at)
+			if !hasEarliest || at.Before(earliest) {
+				earliest = at
+				hasEarliest = true
+			}
 		}
 	}
 
@@ -56,7 +62,7 @@ func (rl *RateLimiter) Allow(key string, limit int, window time.Duration) LimitD
 		rl.hits[key] = valid
 		return LimitDecision{
 			Allowed:    false,
-			RetryAfter: valid[0].Add(window).Sub(now),
+			RetryAfter: earliest.Add(window).Sub(now),
 		}
 	}
 
