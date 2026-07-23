@@ -5,18 +5,20 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Site     SiteConfig     `yaml:"site"`
-	Admin    AdminConfig    `yaml:"admin"`
-	Auth     AuthConfig     `yaml:"auth"`
-	Mail     MailConfig     `yaml:"mail"`
-	AI       AIConfig       `yaml:"ai"`
+	Server           ServerConfig           `yaml:"server"`
+	Database         DatabaseConfig         `yaml:"database"`
+	Site             SiteConfig             `yaml:"site"`
+	Admin            AdminConfig            `yaml:"admin"`
+	Auth             AuthConfig             `yaml:"auth"`
+	Mail             MailConfig             `yaml:"mail"`
+	VerificationCode VerificationCodeConfig `yaml:"verificationCode"`
+	AI               AIConfig               `yaml:"ai"`
 }
 
 type ServerConfig struct {
@@ -54,6 +56,11 @@ type MailConfig struct {
 	From     string `yaml:"from"`
 }
 
+type VerificationCodeConfig struct {
+	Cooldown  time.Duration `yaml:"cooldown"`
+	ExpiresIn time.Duration `yaml:"expiresIn"`
+}
+
 type AIConfig struct {
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
@@ -87,6 +94,10 @@ func Default() Config {
 		},
 		Mail: MailConfig{
 			SMTPPort: "587",
+		},
+		VerificationCode: VerificationCodeConfig{
+			Cooldown:  60 * time.Second,
+			ExpiresIn: 10 * time.Minute,
 		},
 		AI: AIConfig{
 			Provider: "deepseek",
@@ -206,6 +217,12 @@ func withDefaults(cfg Config) Config {
 	}
 	if cfg.Mail.SMTPPort == "" {
 		cfg.Mail.SMTPPort = defaults.Mail.SMTPPort
+	}
+	if cfg.VerificationCode.Cooldown <= 0 {
+		cfg.VerificationCode.Cooldown = defaults.VerificationCode.Cooldown
+	}
+	if cfg.VerificationCode.ExpiresIn <= 0 {
+		cfg.VerificationCode.ExpiresIn = defaults.VerificationCode.ExpiresIn
 	}
 	if cfg.AI.Provider == "" {
 		cfg.AI.Provider = defaults.AI.Provider

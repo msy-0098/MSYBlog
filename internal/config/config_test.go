@@ -1,9 +1,11 @@
 package config_test
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"masenyu.top/blog/backend/internal/config"
 )
@@ -154,4 +156,34 @@ func setValidReleaseEnvironment(t *testing.T) {
 	t.Setenv("BLOG_SMTP_USERNAME", "mailer@example.test")
 	t.Setenv("BLOG_SMTP_PASSWORD", "smtp-test-password")
 	t.Setenv("BLOG_SMTP_FROM", "mailer@example.test")
+}
+
+func TestDefaultVerificationCodeTiming(t *testing.T) {
+	cfg := config.Default()
+
+	if cfg.VerificationCode.Cooldown != 60*time.Second {
+		t.Fatalf("default verification cooldown = %v, want %v", cfg.VerificationCode.Cooldown, 60*time.Second)
+	}
+	if cfg.VerificationCode.ExpiresIn != 10*time.Minute {
+		t.Fatalf("default verification expiry = %v, want %v", cfg.VerificationCode.ExpiresIn, 10*time.Minute)
+	}
+}
+
+func TestLoadParsesVerificationCodeTiming(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte("verificationCode:\n  cooldown: 75s\n  expiresIn: 12m\n")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.VerificationCode.Cooldown != 75*time.Second {
+		t.Fatalf("parsed verification cooldown = %v, want %v", cfg.VerificationCode.Cooldown, 75*time.Second)
+	}
+	if cfg.VerificationCode.ExpiresIn != 12*time.Minute {
+		t.Fatalf("parsed verification expiry = %v, want %v", cfg.VerificationCode.ExpiresIn, 12*time.Minute)
+	}
 }

@@ -3,7 +3,9 @@ package handler
 import (
 	cryptorand "crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net/http"
 	"net/smtp"
@@ -18,13 +20,16 @@ import (
 	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
+	"masenyu.top/blog/backend/internal/service"
 )
 
 type VisitorAuthHandler struct {
-	db        *gorm.DB
-	cfg       config.Config
-	jwtSecret string
-	now       func() time.Time
+	db                *gorm.DB
+	cfg               config.Config
+	jwtSecret         string
+	now               func() time.Time
+	codeLimiter       *service.VerificationCodeLimiter
+	sendCodeEmailFunc func(email string, code string, purpose string) error
 }
 
 type EmailCodeRequest struct {
@@ -62,12 +67,16 @@ type VisitorAuthResponse struct {
 	User  VisitorUserDTO `json:"user"`
 }
 
-func NewVisitorAuthHandler(db *gorm.DB, cfg config.Config) VisitorAuthHandler {
+func NewVisitorAuthHandler(db *gorm.DB, cfg config.Config, codeLimiter *service.VerificationCodeLimiter) VisitorAuthHandler {
+	if codeLimiter == nil {
+		codeLimiter = service.NewVerificationCodeLimiter(cfg.VerificationCode.Cooldown, time.Now)
+	}
 	return VisitorAuthHandler{
-		db:        db,
-		cfg:       cfg,
-		jwtSecret: cfg.Auth.JWTSecret,
-		now:       time.Now,
+		db:          db,
+		cfg:         cfg,
+		jwtSecret:   cfg.Auth.JWTSecret,
+		now:         time.Now,
+		codeLimiter: codeLimiter,
 	}
 }
 
@@ -84,12 +93,36 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 		return
 	}
 
-	purpose := normalizeCodePurpose(req.Purpose)
+	purpose, err := service.ParseCodePurpose(req.Purpose)
+	if err != nil {
+		badRequest(c)
+		return
+	}
+
+	if retryAfter := h.codeLimiter.RetryAfter(email, purpose); retryAfter > 0 {
+		seconds := int(math.Ceil(retryAfter.Seconds()))
+		if seconds < 1 {
+			seconds = 1
+		}
+		response.ErrorWithData(
+			c,
+			http.StatusTooManyRequests,
+			"请求过于频繁，请稍后再试",
+			gin.H{"retryAfter": seconds},
+		)
+		return
+	}
+
 	if purpose == "reset" {
 		var user model.User
-		if err := h.db.Where("email = ? AND role = ?", email, model.UserRoleVisitor).First(&user).Error; err != nil {
-			// Do not reveal whether the email is registered.
-			response.Success(c, gin.H{"sent": true})
+		err := h.db.Where("email = ? AND role = ?", email, model.UserRoleVisitor).First(&user).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			h.codeLimiter.MarkSent(email, purpose)
+			h.respondEmailCodeSent(c)
+			return
+		}
+		if err != nil {
+			internalError(c)
 			return
 		}
 	}
@@ -110,20 +143,37 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 		Email:     email,
 		Purpose:   purpose,
 		CodeHash:  codeHash,
-		ExpiresAt: h.now().Add(10 * time.Minute),
+		ExpiresAt: h.now().Add(h.cfg.VerificationCode.ExpiresIn),
 	}).Error; err != nil {
 		internalError(c)
 		return
 	}
 
 	if h.mailConfigured() {
-		if err := h.sendCodeEmail(email, code, purpose); err != nil {
-			response.Error(c, http.StatusInternalServerError, 500, "验证码邮件发送失败")
+		if err := h.deliverCodeEmail(email, code, purpose); err != nil {
+			response.Error(c, http.StatusInternalServerError, 500, "验证码暂时无法发送，请稍后再试")
 			return
 		}
 	}
 
-	response.Success(c, gin.H{"sent": true})
+	h.codeLimiter.MarkSent(email, purpose)
+	h.respondEmailCodeSent(c)
+}
+
+func (h VisitorAuthHandler) respondEmailCodeSent(c *gin.Context) {
+	response.Success(c, gin.H{
+		"sent":            true,
+		"cooldownSeconds": durationSeconds(h.cfg.VerificationCode.Cooldown),
+		"expiresIn":       durationSeconds(h.cfg.VerificationCode.ExpiresIn),
+	})
+}
+
+func durationSeconds(duration time.Duration) int {
+	seconds := int(math.Ceil(duration.Seconds()))
+	if seconds < 0 {
+		return 0
+	}
+	return seconds
 }
 
 func (h VisitorAuthHandler) Register(c *gin.Context) {
@@ -295,6 +345,13 @@ func (h VisitorAuthHandler) mailConfigured() bool {
 	return h.cfg.Mail.SMTPHost != "" && h.cfg.Mail.SMTPPort != "" && h.cfg.Mail.Username != "" && h.cfg.Mail.Password != ""
 }
 
+func (h VisitorAuthHandler) deliverCodeEmail(email string, code string, purpose string) error {
+	if h.sendCodeEmailFunc != nil {
+		return h.sendCodeEmailFunc(email, code, purpose)
+	}
+	return h.sendCodeEmail(email, code, purpose)
+}
+
 func (h VisitorAuthHandler) sendCodeEmail(email string, code string, purpose string) error {
 	from := h.cfg.Mail.From
 	if from == "" {
@@ -390,11 +447,8 @@ func encodeMailSubject(subject string) string {
 }
 
 func normalizeCodePurpose(raw string) string {
-	purpose := strings.ToLower(strings.TrimSpace(raw))
-	if purpose == "reset" {
-		return "reset"
-	}
-	return "register"
+	purpose, _ := service.ParseCodePurpose(raw)
+	return purpose
 }
 
 func visitorUserDTO(user model.User) VisitorUserDTO {

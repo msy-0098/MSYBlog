@@ -17,3 +17,7 @@ site:
     - 分类
     - 项目
     - 关于
+
+verificationCode:
+  cooldown: 60s
+  expiresIn: 10m
