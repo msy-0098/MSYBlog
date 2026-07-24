@@ -15,11 +15,13 @@ import (
 	"masenyu.top/blog/backend/internal/ai"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
+	"masenyu.top/blog/backend/internal/service"
 )
 
 type AdminInsightHandler struct {
 	db       *gorm.DB
 	aiClient ai.ChatClient
+	runtime  *service.AIRuntime
 	model    string
 }
 
@@ -96,6 +98,10 @@ func NewAdminInsightHandler(db *gorm.DB, aiClient ai.ChatClient, modelName strin
 	return AdminInsightHandler{db: db, aiClient: aiClient, model: modelName}
 }
 
+func NewAdminInsightHandlerWithRuntime(db *gorm.DB, aiClient ai.ChatClient, runtime *service.AIRuntime, modelName string) AdminInsightHandler {
+	return AdminInsightHandler{db: db, aiClient: aiClient, runtime: runtime, model: modelName}
+}
+
 func (h AdminInsightHandler) ListUsers(c *gin.Context) {
 	page, pageSize := pagination(c)
 	var total int64
@@ -131,7 +137,7 @@ type AIAnalysisDTO struct {
 }
 
 func (h AdminInsightHandler) GenerateInsights(c *gin.Context) {
-	if h.aiClient == nil || !h.aiClient.Configured() {
+	if !h.configured() {
 		response.Error(c, http.StatusServiceUnavailable, 503, "DeepSeek 尚未配置，请在服务器环境变量中设置 BLOG_AI_API_KEY")
 		return
 	}
@@ -153,7 +159,7 @@ func (h AdminInsightHandler) GenerateInsights(c *gin.Context) {
 		internalError(c)
 		return
 	}
-	answer, err := h.aiClient.Chat(c.Request.Context(), []ai.Message{
+	answer, err := h.chat(c, []ai.Message{
 		{Role: "system", Content: "你是博客运营分析助手，请用简洁中文给出可执行建议。"},
 		{Role: "user", Content: "请分析以下博客数据并给出一段不超过120字的运营建议：" + string(payload)},
 	})
@@ -245,7 +251,7 @@ func (h AdminInsightHandler) Chat(c *gin.Context) {
 		badRequest(c)
 		return
 	}
-	answer, err := h.aiClient.Chat(c.Request.Context(), req.Messages)
+	answer, err := h.chat(c, req.Messages)
 	if err != nil {
 		response.Error(c, http.StatusBadGateway, 502, aiErrorMessage(err))
 		return
@@ -260,7 +266,7 @@ func (h AdminInsightHandler) Beautify(c *gin.Context) {
 		return
 	}
 	prompt := fmt.Sprintf("请把下面这篇技术文章润色成适合个人技术博客发布的中文 Markdown。保留事实和代码，不要编造内容；优化标题、摘要、层级、段落和可读性。只返回 JSON，字段必须是 title、summary、content，不要 Markdown 代码围栏。\n原标题：%s\n原摘要：%s\n原正文：\n%s", req.Title, req.Summary, req.Content)
-	answer, err := h.aiClient.Chat(c.Request.Context(), []ai.Message{{Role: "system", Content: "你是严谨的技术博客编辑。"}, {Role: "user", Content: prompt}})
+	answer, err := h.chat(c, []ai.Message{{Role: "system", Content: "你是严谨的技术博客编辑。"}, {Role: "user", Content: prompt}})
 	if err != nil {
 		response.Error(c, http.StatusBadGateway, 502, aiErrorMessage(err))
 		return
@@ -271,6 +277,31 @@ func (h AdminInsightHandler) Beautify(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+func (h AdminInsightHandler) configured() bool {
+	if h.runtime != nil {
+		return h.runtime.Configured()
+	}
+	return h.aiClient != nil && h.aiClient.Configured()
+}
+
+func (h AdminInsightHandler) chat(c *gin.Context, messages []ai.Message) (string, error) {
+	if h.runtime != nil {
+		adminID, ok := adminIDFromContext(c)
+		if !ok {
+			return "", service.ErrAIClientUnavailable
+		}
+		result, err := h.runtime.Chat(c.Request.Context(), adminID, ai.ChatRequest{Messages: messages, Model: h.model})
+		if err != nil {
+			return "", err
+		}
+		return result.Content, nil
+	}
+	if h.aiClient == nil || !h.aiClient.Configured() {
+		return "", service.ErrAIClientUnavailable
+	}
+	return h.aiClient.Chat(c.Request.Context(), messages)
 }
 
 func (h AdminInsightHandler) readAnalytics() (AnalyticsDTO, error) {

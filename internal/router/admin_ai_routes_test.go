@@ -29,6 +29,25 @@ type fakeAdminAIClient struct {
 	panicOnChat bool
 }
 
+type fakeAdminAIProvider struct {
+	healthCalls int
+}
+
+var _ ai.Provider = (*fakeAdminAIProvider)(nil)
+
+func (p *fakeAdminAIProvider) Chat(_ context.Context, _ ai.ChatRequest) (ai.ChatResult, error) {
+	return ai.ChatResult{Content: "ok"}, nil
+}
+
+func (p *fakeAdminAIProvider) Stream(_ context.Context, _ ai.ChatRequest, emit func(ai.StreamChunk) error) (ai.Usage, error) {
+	return ai.Usage{}, emit(ai.StreamChunk{Content: "ok"})
+}
+
+func (p *fakeAdminAIProvider) Health(_ context.Context) ai.HealthResult {
+	p.healthCalls++
+	return ai.HealthResult{Healthy: true}
+}
+
 var _ ai.ChatClient = (*fakeAdminAIClient)(nil)
 
 func (f *fakeAdminAIClient) Configured() bool { return f.configured }
@@ -92,6 +111,42 @@ func TestAdminAIRoutesRequireJWTAndEmitSSE(t *testing.T) {
 		if !strings.Contains(body, event) {
 			t.Fatalf("stream missing %s: %s", event, body)
 		}
+	}
+}
+
+func TestAdminAIStatusAndHealthCheckAreProtectedAndSanitized(t *testing.T) {
+	provider := &fakeAdminAIProvider{}
+	cfg := testDatabaseConfig(t)
+	resetPostgresSchema(t, cfg)
+	statusDB, err := database.Open(database.Options{Config: cfg})
+	if err != nil {
+		t.Fatalf("open status database: %v", err)
+	}
+	trackSQLDatabase(t, statusDB)
+	cfg.AI.Provider = "openai-compatible"
+	cfg.AI.Model = "status-model"
+	cfg.AI.APIKey = "test-api-key-must-never-appear"
+	cfg.AI.BaseURL = "https://api.example.test/v1"
+	engine := router.New(router.Dependencies{Config: cfg, Database: statusDB, AIClient: &fakeAdminAIClient{configured: true}, AIProvider: provider})
+	if got := performRequest(engine, http.MethodGet, "/api/admin/ai/status"); got.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized status request, got %d", got.Code)
+	}
+	token := loginAndGetToken(t, engine)
+
+	status := performJSONRequest(engine, http.MethodGet, "/api/admin/ai/status", nil, token)
+	if status.Code != http.StatusOK {
+		t.Fatalf("AI status: %d %s", status.Code, status.Body.String())
+	}
+	if strings.Contains(status.Body.String(), cfg.AI.APIKey) || !strings.Contains(status.Body.String(), "api.example.test") {
+		t.Fatalf("status leaked API key or omitted safe base URL: %s", status.Body.String())
+	}
+
+	health := performJSONRequest(engine, http.MethodPost, "/api/admin/ai/health-check", map[string]any{}, token)
+	if health.Code != http.StatusOK {
+		t.Fatalf("AI health check: %d %s", health.Code, health.Body.String())
+	}
+	if provider.healthCalls != 1 || !strings.Contains(health.Body.String(), `"healthy":true`) {
+		t.Fatalf("health check result = %s, calls = %d", health.Body.String(), provider.healthCalls)
 	}
 }
 

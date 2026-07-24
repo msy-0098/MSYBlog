@@ -17,9 +17,10 @@ import (
 )
 
 type Dependencies struct {
-	Config   config.Config
-	Database *gorm.DB
-	AIClient ai.ChatClient
+	Config     config.Config
+	Database   *gorm.DB
+	AIClient   ai.ChatClient
+	AIProvider ai.Provider
 }
 
 func New(deps Dependencies) *gin.Engine {
@@ -30,12 +31,24 @@ func New(deps Dependencies) *gin.Engine {
 	engine.Static("/uploads", "uploads")
 
 	aiClient := deps.AIClient
+	aiProvider := deps.AIProvider
+	if aiProvider == nil && aiClient == nil {
+		var err error
+		aiProvider, err = ai.NewProvider(ai.Config{Provider: deps.Config.AI.Provider, APIKey: deps.Config.AI.APIKey, Model: deps.Config.AI.Model, BaseURL: deps.Config.AI.BaseURL})
+		if err != nil {
+			panic("invalid AI provider configuration")
+		}
+	}
 	if aiClient == nil {
 		var err error
 		aiClient, err = ai.NewConfiguredClient(ai.Config{Provider: deps.Config.AI.Provider, APIKey: deps.Config.AI.APIKey, Model: deps.Config.AI.Model, BaseURL: deps.Config.AI.BaseURL})
 		if err != nil {
 			panic("invalid AI provider configuration")
 		}
+	}
+	var aiRuntime *service.AIRuntime
+	if aiProvider != nil {
+		aiRuntime = service.NewAIRuntime(aiProvider, service.DefaultAILimits())
 	}
 	siteHandler := handler.NewSiteHandler(deps.Database, deps.Config)
 	blogHandler := handler.NewBlogHandler(deps.Database)
@@ -46,8 +59,9 @@ func New(deps Dependencies) *gin.Engine {
 	adminAuthHandler := handler.NewAdminAuthHandler(deps.Database, deps.Config.Auth.JWTSecret)
 	adminContentHandler := handler.NewAdminContentHandler(deps.Database, deps.Config)
 	adminDashboardHandler := handler.NewAdminDashboardHandler(deps.Database)
-	adminInsightHandler := handler.NewAdminInsightHandler(deps.Database, aiClient, deps.Config.AI.Model)
-	adminAIHandler := handler.NewAdminAIHandler(service.NewAIConversationService(deps.Database, aiClient, deps.Config.AI.Model))
+	adminInsightHandler := handler.NewAdminInsightHandlerWithRuntime(deps.Database, aiClient, aiRuntime, deps.Config.AI.Model)
+	adminAIHandler := handler.NewAdminAIHandler(service.NewAIConversationServiceWithRuntime(deps.Database, aiClient, aiRuntime, deps.Config.AI.Model))
+	adminAIStatusHandler := handler.NewAdminAIStatusHandler(aiRuntime, deps.Config.AI.Provider, deps.Config.AI.Model, deps.Config.AI.BaseURL)
 	limiter := middleware.NewRateLimiter()
 
 	// SEO discovery endpoints (also proxied by nginx as /rss.xml /sitemap.xml /robots.txt).
@@ -95,6 +109,8 @@ func New(deps Dependencies) *gin.Engine {
 	admin.POST("/ai/insights/generate", adminInsightHandler.GenerateInsights)
 	admin.POST("/ai/chat", adminInsightHandler.Chat)
 	admin.POST("/ai/beautify", adminInsightHandler.Beautify)
+	admin.GET("/ai/status", adminAIStatusHandler.Status)
+	admin.POST("/ai/health-check", adminAIStatusHandler.HealthCheck)
 	admin.GET("/ai/conversations", adminAIHandler.List)
 	admin.POST("/ai/conversations", adminAIHandler.Create)
 	admin.DELETE("/ai/conversations", adminAIHandler.Clear)

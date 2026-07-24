@@ -35,6 +35,7 @@ var (
 type AIConversationService struct {
 	db       *gorm.DB
 	aiClient ai.ChatClient
+	runtime  *AIRuntime
 	model    string
 
 	streamMu      sync.Mutex
@@ -48,10 +49,18 @@ type activeStreamKey struct {
 }
 
 func NewAIConversationService(db *gorm.DB, aiClient ai.ChatClient, modelName string) *AIConversationService {
+	return buildAIConversationService(db, aiClient, nil, modelName)
+}
+
+func NewAIConversationServiceWithRuntime(db *gorm.DB, aiClient ai.ChatClient, runtime *AIRuntime, modelName string) *AIConversationService {
+	return buildAIConversationService(db, aiClient, runtime, modelName)
+}
+
+func buildAIConversationService(db *gorm.DB, aiClient ai.ChatClient, runtime *AIRuntime, modelName string) *AIConversationService {
 	if strings.TrimSpace(modelName) == "" {
 		modelName = defaultAIModel
 	}
-	return &AIConversationService{db: db, aiClient: aiClient, model: modelName, activeStreams: make(map[activeStreamKey]map[uint64]context.CancelFunc)}
+	return &AIConversationService{db: db, aiClient: aiClient, runtime: runtime, model: modelName, activeStreams: make(map[activeStreamKey]map[uint64]context.CancelFunc)}
 }
 
 func (s *AIConversationService) List(ctx context.Context, adminID uint) ([]model.AIConversation, error) {
@@ -199,20 +208,28 @@ func (s *AIConversationService) StreamMessageWithStart(ctx context.Context, admi
 	}
 	prompt := append([]ai.Message{{Role: "system", Content: "你是马森雨个人技术博客的管理助手。请使用简洁、准确的中文回答；不确定时明确说明。"}}, messages...)
 
-	if s.aiClient == nil || !s.aiClient.Configured() {
+	if (s.runtime == nil || !s.runtime.Configured()) && (s.aiClient == nil || !s.aiClient.Configured()) {
 		return s.finishStream(streamCtx, conversation, assistant, "", model.AIMessageStatusFailed, ErrAIClientUnavailable)
 	}
 
 	var output strings.Builder
 	var callbackErr error
-	streamErr := s.aiClient.StreamChat(streamCtx, prompt, func(delta string) error {
+	emit := func(delta string) error {
 		output.WriteString(delta)
 		if err := onDelta(delta); err != nil {
 			callbackErr = err
 			return err
 		}
 		return nil
-	})
+	}
+	var streamErr error
+	if s.runtime != nil && s.runtime.Configured() {
+		_, streamErr = s.runtime.Stream(streamCtx, adminID, ai.ChatRequest{Messages: prompt, Model: s.model}, func(chunk ai.StreamChunk) error {
+			return emit(chunk.Content)
+		})
+	} else {
+		streamErr = s.aiClient.StreamChat(streamCtx, prompt, emit)
+	}
 	if streamErr == nil && streamCtx.Err() == nil {
 		return s.finishStream(streamCtx, conversation, assistant, output.String(), model.AIMessageStatusCompleted, nil)
 	}
