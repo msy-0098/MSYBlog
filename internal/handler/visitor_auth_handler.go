@@ -2,13 +2,11 @@ package handler
 
 import (
 	cryptorand "crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"net/http"
-	"net/smtp"
 	"strings"
 	"time"
 
@@ -17,6 +15,7 @@ import (
 
 	"masenyu.top/blog/backend/internal/auth"
 	"masenyu.top/blog/backend/internal/config"
+	blogmail "masenyu.top/blog/backend/internal/mail"
 	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
@@ -24,12 +23,12 @@ import (
 )
 
 type VisitorAuthHandler struct {
-	db                *gorm.DB
-	cfg               config.Config
-	jwtSecret         string
-	now               func() time.Time
-	codeLimiter       *service.VerificationCodeLimiter
-	sendCodeEmailFunc func(email string, code string, purpose string) error
+	db          *gorm.DB
+	cfg         config.Config
+	jwtSecret   string
+	now         func() time.Time
+	codeLimiter *service.VerificationCodeLimiter
+	mailSender  blogmail.Sender
 }
 
 type EmailCodeRequest struct {
@@ -67,7 +66,7 @@ type VisitorAuthResponse struct {
 	User  VisitorUserDTO `json:"user"`
 }
 
-func NewVisitorAuthHandler(db *gorm.DB, cfg config.Config, codeLimiter *service.VerificationCodeLimiter) VisitorAuthHandler {
+func NewVisitorAuthHandler(db *gorm.DB, cfg config.Config, codeLimiter *service.VerificationCodeLimiter, mailSender blogmail.Sender) VisitorAuthHandler {
 	if codeLimiter == nil {
 		codeLimiter = service.NewVerificationCodeLimiter(cfg.VerificationCode.Cooldown, time.Now)
 	}
@@ -77,6 +76,7 @@ func NewVisitorAuthHandler(db *gorm.DB, cfg config.Config, codeLimiter *service.
 		jwtSecret:   cfg.Auth.JWTSecret,
 		now:         time.Now,
 		codeLimiter: codeLimiter,
+		mailSender:  mailSender,
 	}
 }
 
@@ -151,8 +151,22 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 		return
 	}
 
-	if h.mailConfigured() {
-		if err := h.deliverCodeEmail(email, code, purpose); err != nil {
+	if h.mailSender != nil {
+		from := h.cfg.Mail.From
+		if from == "" {
+			from = h.cfg.Mail.Username
+		}
+		message, err := blogmail.BuildVerificationEmail(blogmail.VerificationEmail{
+			From:      from,
+			To:        email,
+			Code:      code,
+			Purpose:   purpose,
+			ExpiresIn: h.cfg.VerificationCode.ExpiresIn,
+		})
+		if err == nil {
+			err = h.mailSender.Send(c.Request.Context(), email, message)
+		}
+		if err != nil {
 			if purpose == "reset" {
 				reservation.Commit()
 				h.respondEmailCodeSent(c)
@@ -307,7 +321,7 @@ func (h VisitorAuthHandler) ResetPassword(c *gin.Context) {
 
 func (h VisitorAuthHandler) issueCode() (string, error) {
 	// Local / test mode without SMTP uses a fixed code so registration still works.
-	if !h.mailConfigured() {
+	if h.mailSender == nil {
 		return "000000", nil
 	}
 
@@ -346,119 +360,6 @@ func (h VisitorAuthHandler) verifyCode(email string, code string, purpose string
 	usedAt := h.now()
 	verification.UsedAt = &usedAt
 	return h.db.Save(&verification).Error == nil
-}
-
-func (h VisitorAuthHandler) mailConfigured() bool {
-	return h.cfg.Mail.SMTPHost != "" && h.cfg.Mail.SMTPPort != "" && h.cfg.Mail.Username != "" && h.cfg.Mail.Password != ""
-}
-
-func (h VisitorAuthHandler) deliverCodeEmail(email string, code string, purpose string) error {
-	if h.sendCodeEmailFunc != nil {
-		return h.sendCodeEmailFunc(email, code, purpose)
-	}
-	return h.sendCodeEmail(email, code, purpose)
-}
-
-func (h VisitorAuthHandler) sendCodeEmail(email string, code string, purpose string) error {
-	from := h.cfg.Mail.From
-	if from == "" {
-		from = h.cfg.Mail.Username
-	}
-
-	host := h.cfg.Mail.SMTPHost
-	address := host + ":" + h.cfg.Mail.SMTPPort
-	authenticator := smtp.PlainAuth("", h.cfg.Mail.Username, h.cfg.Mail.Password, host)
-
-	subject := "【马森雨博客】评论验证码"
-	actionTitle := "邮箱验证码注册"
-	actionDesc := "您正在进行邮箱验证码注册/登录，请使用以下验证码完成验证："
-	if purpose == "reset" {
-		subject = "【马森雨博客】密码重置验证码"
-		actionTitle = "重置密码"
-		actionDesc = "您正在请求重置博客账号密码，请使用以下验证码完成验证："
-	}
-
-	htmlBody := fmt.Sprintf(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>%s</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #F8F9FA; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #202124;">
-  <table border="0" cellpadding="0" cellspacing="0" width="100%%" style="table-layout: fixed; padding: 40px 16px;">
-    <tr>
-      <td align="center">
-        <table border="0" cellpadding="0" cellspacing="0" width="100%%" style="max-width: 520px; background-color: #ffffff; border: 1px solid #E8EAED; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); overflow: hidden;">
-          <tr>
-            <td style="padding: 32px 32px 24px 32px; border-bottom: 1px solid #F1F3F4;">
-              <table border="0" cellpadding="0" cellspacing="0" width="100%%">
-                <tr>
-                  <td>
-                    <span style="font-size: 18px; font-weight: 700; color: #1A73E8; letter-spacing: -0.2px;">马森雨的技术博客</span>
-                  </td>
-                  <td align="right">
-                    <span style="font-size: 13px; color: #5F6368;">masenyu.top</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 32px;">
-              <h2 style="margin: 0 0 12px 0; font-size: 20px; font-weight: 600; color: #202124;">%s</h2>
-              <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #5F6368;">%s</p>
-              
-              <div style="background-color: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 24px;">
-                <span style="font-family: Consolas, 'Courier New', monospace; font-size: 32px; font-weight: 800; color: #1E40AF; letter-spacing: 8px; display: inline-block;">%s</span>
-              </div>
-              
-              <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #70757A;">
-                ⏱️ 验证码有效期为 <strong>%s</strong>。若非本人操作，请忽略此邮件。
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 20px 32px; background-color: #F8F9FA; border-top: 1px solid #F1F3F4; text-align: center;">
-              <p style="margin: 0; font-size: 12px; color: #9AA0A6;">
-                此邮件由 masenyu.top 系统自动发送，请勿直接回复。
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`, subject, actionTitle, actionDesc, code, verificationCodeExpiryLabel(h.cfg.VerificationCode.ExpiresIn))
-
-	message := strings.Join([]string{
-		"From: " + from,
-		"To: " + email,
-		"Subject: " + encodeMailSubject(subject),
-		"MIME-Version: 1.0",
-		"Content-Type: text/html; charset=UTF-8",
-		"",
-		htmlBody,
-	}, "\r\n")
-
-	return smtp.SendMail(address, authenticator, from, []string{email}, []byte(message))
-}
-
-func verificationCodeExpiryLabel(expiresIn time.Duration) string {
-	seconds := durationSeconds(expiresIn)
-	if seconds > 0 && seconds%60 == 0 {
-		return fmt.Sprintf("%d 分钟", seconds/60)
-	}
-	return fmt.Sprintf("%d 秒", seconds)
-}
-
-func encodeMailSubject(subject string) string {
-	for _, r := range subject {
-		if r > 127 {
-			return "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(subject)) + "?="
-		}
-	}
-	return subject
 }
 
 func normalizeCodePurpose(raw string) string {

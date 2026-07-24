@@ -1,15 +1,12 @@
 package handler
 
 import (
-	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/mail"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,193 +20,22 @@ import (
 
 	"masenyu.top/blog/backend/internal/auth"
 	"masenyu.top/blog/backend/internal/config"
+	blogmail "masenyu.top/blog/backend/internal/mail"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/service"
 )
 
-func TestSendCodeEmailUsesRegistrationEmailAsRecipient(t *testing.T) {
-	host, port := startSMTPServerRequiringHeaders(t, "sender@example.com", "reader@example.com")
-	handler := VisitorAuthHandler{
-		cfg: config.Config{
-			Mail: config.MailConfig{
-				SMTPHost: host,
-				SMTPPort: port,
-				Username: "sender@example.com",
-				Password: "smtp-password",
-				From:     "sender@example.com",
-			},
-		},
-	}
-
-	if err := handler.sendCodeEmail("reader@example.com", "123456", "register"); err != nil {
-		t.Fatalf("expected email to be addressed to registration email, got %v", err)
-	}
+type fakeVerificationEmailSender struct {
+	calls *atomic.Int32
+	send  func(to string, message []byte) error
 }
 
-func TestSendCodeEmailUsesConfiguredExpiryInBody(t *testing.T) {
-	host, port := startSMTPServerRequiringMessage(
-		t,
-		"sender@example.com",
-		"reader@example.com",
-		"验证码有效期为 <strong>12 分钟</strong>",
-	)
-	handler := VisitorAuthHandler{
-		cfg: config.Config{
-			Mail: config.MailConfig{
-				SMTPHost: host,
-				SMTPPort: port,
-				Username: "sender@example.com",
-				Password: "smtp-password",
-				From:     "sender@example.com",
-			},
-			VerificationCode: config.VerificationCodeConfig{ExpiresIn: 12 * time.Minute},
-		},
-	}
-
-	if err := handler.sendCodeEmail("reader@example.com", "123456", "register"); err != nil {
-		t.Fatalf("expected configured expiry in email body, got %v", err)
-	}
-}
-
-func startSMTPServerRequiringHeaders(t *testing.T, expectedFrom string, expectedTo string) (string, string) {
-	return startSMTPServerRequiringMessage(t, expectedFrom, expectedTo, "")
-}
-
-func startSMTPServerRequiringMessage(t *testing.T, expectedFrom string, expectedTo string, expectedBody string) (string, string) {
-	t.Helper()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen smtp server: %v", err)
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			done <- err
-			return
-		}
-		defer conn.Close()
-		done <- handleSMTPConnection(conn, expectedFrom, expectedTo, expectedBody)
-	}()
-
-	t.Cleanup(func() {
-		_ = listener.Close()
-		if err := <-done; err != nil && err.Error() != "EOF" && !strings.Contains(err.Error(), "use of closed network connection") {
-			t.Fatalf("smtp test server: %v", err)
-		}
-	})
-
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		t.Fatalf("split smtp address: %v", err)
-	}
-
-	return "localhost", port
-}
-
-func handleSMTPConnection(conn net.Conn, expectedFrom string, expectedTo string, expectedBody string) error {
-	reader := bufio.NewReader(conn)
-	writer := bufio.NewWriter(conn)
-	var recipient string
-	writeLine := func(line string) error {
-		if _, err := writer.WriteString(line + "\r\n"); err != nil {
-			return err
-		}
-		return writer.Flush()
-	}
-
-	if err := writeLine("220 localhost ESMTP"); err != nil {
+func (sender fakeVerificationEmailSender) Send(ctx context.Context, to string, message []byte) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return err
-		}
-		command := strings.TrimRight(line, "\r\n")
-		upper := strings.ToUpper(command)
-
-		switch {
-		case strings.HasPrefix(upper, "EHLO") || strings.HasPrefix(upper, "HELO"):
-			if _, err := writer.WriteString("250-localhost\r\n250-AUTH PLAIN\r\n250 OK\r\n"); err != nil {
-				return err
-			}
-			if err := writer.Flush(); err != nil {
-				return err
-			}
-		case strings.HasPrefix(upper, "AUTH PLAIN"):
-			if err := writeLine("235 2.7.0 Authentication successful"); err != nil {
-				return err
-			}
-		case strings.HasPrefix(upper, "MAIL FROM:"):
-			if err := writeLine("250 OK"); err != nil {
-				return err
-			}
-		case strings.HasPrefix(upper, "RCPT TO:"):
-			recipient = extractSMTPAddress(command)
-			if recipient != expectedTo {
-				return fmt.Errorf("expected smtp envelope recipient %q, got %q", expectedTo, recipient)
-			}
-			if err := writeLine("250 OK"); err != nil {
-				return err
-			}
-		case strings.HasPrefix(upper, "DATA"):
-			if err := writeLine("354 End data with <CR><LF>.<CR><LF>"); err != nil {
-				return err
-			}
-			message, err := readSMTPData(reader)
-			if err != nil {
-				return err
-			}
-			parsed, err := mail.ReadMessage(strings.NewReader(message))
-			if err != nil || parsed.Header.Get("From") != expectedFrom || parsed.Header.Get("To") != expectedTo ||
-				(expectedBody != "" && !strings.Contains(message, expectedBody)) {
-				if err := writeLine(`550 The "From" or "To" header is missing or invalid`); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := writeLine("250 OK"); err != nil {
-				return err
-			}
-		case strings.HasPrefix(upper, "QUIT"):
-			return writeLine("221 Bye")
-		default:
-			return fmt.Errorf("unexpected smtp command %q", command)
-		}
-	}
-}
-
-func extractSMTPAddress(command string) string {
-	start := strings.Index(command, "<")
-	end := strings.LastIndex(command, ">")
-	if start >= 0 && end > start {
-		return command[start+1 : end]
-	}
-
-	_, value, ok := strings.Cut(command, ":")
-	if !ok {
-		return ""
-	}
-
-	return strings.TrimSpace(value)
-}
-
-func readSMTPData(reader *bufio.Reader) (string, error) {
-	var builder strings.Builder
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return "", err
-		}
-		if line == ".\r\n" {
-			return builder.String(), nil
-		}
-		builder.WriteString(line)
-	}
+	sender.calls.Add(1)
+	return sender.send(to, message)
 }
 
 type emailCodeTestEnvelope struct {
@@ -531,13 +357,26 @@ func newEmailCodeTestHandler(t *testing.T, send func(string, string, string) err
 	}
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
 	limiter := service.NewVerificationCodeLimiter(cfg.VerificationCode.Cooldown, func() time.Time { return now })
-	handler := NewVisitorAuthHandler(db, cfg, limiter)
-	handler.now = func() time.Time { return now }
 	sendCalls := &atomic.Int32{}
-	handler.sendCodeEmailFunc = func(email string, code string, purpose string) error {
-		sendCalls.Add(1)
-		return send(email, code, purpose)
+	var sender blogmail.Sender = fakeVerificationEmailSender{
+		calls: sendCalls,
+		send: func(email string, message []byte) error {
+			content := string(message)
+			purpose := "register"
+			if strings.Contains(content, "重置密码") {
+				purpose = "reset"
+			}
+			const marker = "验证码："
+			start := strings.Index(content, marker)
+			if start < 0 || len(content) < start+len(marker)+6 {
+				return errors.New("verification code missing from generated message")
+			}
+			code := content[start+len(marker) : start+len(marker)+6]
+			return send(email, code, purpose)
+		},
 	}
+	handler := NewVisitorAuthHandler(db, cfg, limiter, sender)
+	handler.now = func() time.Time { return now }
 
 	engine := gin.New()
 	engine.POST("/", handler.SendEmailCode)

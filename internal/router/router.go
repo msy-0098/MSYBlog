@@ -10,6 +10,7 @@ import (
 	"masenyu.top/blog/backend/internal/ai"
 	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/handler"
+	blogmail "masenyu.top/blog/backend/internal/mail"
 	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/response"
 	"masenyu.top/blog/backend/internal/service"
@@ -37,7 +38,7 @@ func New(deps Dependencies) *gin.Engine {
 	feedHandler := handler.NewFeedHandler(deps.Database, deps.Config)
 	commentHandler := handler.NewCommentHandler(deps.Database)
 	verificationCodeLimiter := service.NewVerificationCodeLimiter(deps.Config.VerificationCode.Cooldown, time.Now)
-	visitorAuthHandler := handler.NewVisitorAuthHandler(deps.Database, deps.Config, verificationCodeLimiter)
+	visitorAuthHandler := handler.NewVisitorAuthHandler(deps.Database, deps.Config, verificationCodeLimiter, configuredMailSender(deps.Config))
 	adminAuthHandler := handler.NewAdminAuthHandler(deps.Database, deps.Config.Auth.JWTSecret)
 	adminContentHandler := handler.NewAdminContentHandler(deps.Database, deps.Config)
 	adminDashboardHandler := handler.NewAdminDashboardHandler(deps.Database)
@@ -127,4 +128,26 @@ func New(deps Dependencies) *gin.Engine {
 
 	engine.NoRoute(func(c *gin.Context) { response.Error(c, http.StatusNotFound, 404, "资源不存在") })
 	return engine
+}
+
+func configuredMailSender(cfg config.Config) blogmail.Sender {
+	mailConfig := cfg.Mail
+	if mailConfig.SMTPHost == "" || mailConfig.SMTPPort == "" || mailConfig.Username == "" || mailConfig.Password == "" {
+		return nil
+	}
+	from := mailConfig.From
+	if from == "" {
+		from = mailConfig.Username
+	}
+	sender, err := blogmail.NewSMTPSender(
+		mailConfig.SMTPHost,
+		mailConfig.SMTPPort,
+		mailConfig.Username,
+		mailConfig.Password,
+		from,
+	)
+	if err != nil {
+		panic("invalid mail configuration: " + err.Error())
+	}
+	return sender
 }
