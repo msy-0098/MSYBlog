@@ -100,7 +100,11 @@ func (r *AIRuntime) Chat(ctx context.Context, adminID uint, request ai.ChatReque
 
 	callCtx, cancel := context.WithTimeout(ctx, r.limits.Timeout)
 	defer cancel()
-	return r.provider.Chat(callCtx, request)
+	result, err := r.provider.Chat(callCtx, request)
+	if err == nil && callCtx.Err() != nil {
+		return ai.ChatResult{}, callCtx.Err()
+	}
+	return result, err
 }
 
 func (r *AIRuntime) Stream(ctx context.Context, adminID uint, request ai.ChatRequest, emit func(ai.StreamChunk) error) (ai.Usage, error) {

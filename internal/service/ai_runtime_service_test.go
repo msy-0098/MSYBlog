@@ -11,10 +11,14 @@ import (
 )
 
 type runtimeFakeProvider struct {
+	chat   func(context.Context, ai.ChatRequest) (ai.ChatResult, error)
 	stream func(context.Context, ai.ChatRequest, func(ai.StreamChunk) error) (ai.Usage, error)
 }
 
-func (p runtimeFakeProvider) Chat(_ context.Context, _ ai.ChatRequest) (ai.ChatResult, error) {
+func (p runtimeFakeProvider) Chat(ctx context.Context, request ai.ChatRequest) (ai.ChatResult, error) {
+	if p.chat != nil {
+		return p.chat(ctx, request)
+	}
 	return ai.ChatResult{Content: "ok"}, nil
 }
 
@@ -128,5 +132,50 @@ func TestAIRuntimeRejectsCanceledRequestWithoutLeakingSlots(t *testing.T) {
 	defer mu.Unlock()
 	if calls != 0 {
 		t.Fatalf("provider called for canceled request %d times", calls)
+	}
+}
+
+func TestAIRuntimeChatRejectsLateSuccessAfterTimeoutOrCancellation(t *testing.T) {
+	tests := []struct {
+		name      string
+		timeout   time.Duration
+		cancelled bool
+		want      error
+	}{
+		{name: "timeout", timeout: 10 * time.Millisecond, want: context.DeadlineExceeded},
+		{name: "cancellation", timeout: time.Second, cancelled: true, want: context.Canceled},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			started := make(chan struct{})
+			release := make(chan struct{})
+			runtime := NewAIRuntime(runtimeFakeProvider{chat: func(_ context.Context, _ ai.ChatRequest) (ai.ChatResult, error) {
+				close(started)
+				<-release // Deliberately ignore the runtime context and return a late success.
+				return ai.ChatResult{Content: "late success"}, nil
+			}}, AILimits{MaxConcurrentGlobal: 1, Timeout: test.timeout})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				_, err := runtime.Chat(ctx, 1, ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "hi"}}})
+				done <- err
+			}()
+			<-started
+			if test.cancelled {
+				cancel()
+			} else {
+				time.Sleep(2 * test.timeout)
+			}
+			close(release)
+			if err := <-done; !errors.Is(err, test.want) {
+				t.Fatalf("late chat error = %v, want %v", err, test.want)
+			}
+			if runtime.Active() != 0 || runtime.ActiveForAdmin(1) != 0 {
+				t.Fatalf("late chat leaked active slots: global=%d admin=%d", runtime.Active(), runtime.ActiveForAdmin(1))
+			}
+		})
 	}
 }
