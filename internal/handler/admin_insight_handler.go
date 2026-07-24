@@ -360,6 +360,10 @@ func parseBeautifyResponse(answer string, fallback BeautifyRequest) (BeautifyRes
 }
 
 func aiErrorMessage(err error) string {
+	var providerErr *ai.ProviderError
+	if errors.As(err, &providerErr) && providerErr.Kind == ai.ProviderErrorConfig {
+		err = errors.New("provider is not configured")
+	}
 	if strings.Contains(err.Error(), "not configured") {
 		return "DeepSeek 尚未配置，请在服务器环境变量中设置 BLOG_AI_API_KEY"
 	}
