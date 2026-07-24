@@ -1,14 +1,18 @@
 package mail
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
 	"image/png"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
+	"mime/quotedprintable"
+	"net"
 	stdmail "net/mail"
 	"os"
 	"strings"
@@ -26,6 +30,66 @@ func TestSMTPSenderHonorsCanceledContextBeforeConnecting(t *testing.T) {
 
 	if err := sender.Send(ctx, "reader@example.com", []byte("message")); err != context.Canceled {
 		t.Fatalf("Send error = %v, want context.Canceled", err)
+	}
+}
+
+func TestSMTPSenderDeliversCompleteMessageToEnvelopeRecipient(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	type delivery struct {
+		from    string
+		to      string
+		message []byte
+		err     error
+	}
+	delivered := make(chan delivery, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			delivered <- delivery{err: err}
+			return
+		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		from, to, message, err := receiveSMTPMessage(conn)
+		delivered <- delivery{from: from, to: to, message: message, err: err}
+	}()
+
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("split listener address: %v", err)
+	}
+	sender, err := NewSMTPSender(host, port, "sender@example.com", "secret", "sender@example.com")
+	if err != nil {
+		t.Fatalf("NewSMTPSender: %v", err)
+	}
+	message, err := BuildVerificationEmail(VerificationEmail{
+		From:      "sender@example.com",
+		To:        "reader@example.com",
+		Code:      "123456",
+		Purpose:   "register",
+		ExpiresIn: 10 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("BuildVerificationEmail: %v", err)
+	}
+	if err := sender.Send(context.Background(), "reader@example.com", message); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	result := <-delivered
+	if result.err != nil {
+		t.Fatalf("receive SMTP message: %v", result.err)
+	}
+	if result.from != "sender@example.com" || result.to != "reader@example.com" {
+		t.Fatalf("envelope from=%q to=%q", result.from, result.to)
+	}
+	if !bytes.Equal(result.message, message) {
+		t.Fatal("SMTP DATA differs from the complete MIME message")
 	}
 }
 
@@ -107,6 +171,51 @@ func TestBuildVerificationEmailCreatesRelatedAlternativeWithInlineLogo(t *testin
 	}
 	if _, err := png.Decode(bytes.NewReader(parsed.logo)); err != nil {
 		t.Fatalf("inline logo is not a valid PNG: %v", err)
+	}
+}
+
+func TestBuildVerificationEmailIncludesParseableDateHeader(t *testing.T) {
+	message, err := BuildVerificationEmail(VerificationEmail{
+		From:      "sender@example.com",
+		To:        "reader@example.com",
+		Code:      "123456",
+		Purpose:   "register",
+		ExpiresIn: 10 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("BuildVerificationEmail: %v", err)
+	}
+	parsed, err := stdmail.ReadMessage(bytes.NewReader(message))
+	if err != nil {
+		t.Fatalf("parse message: %v", err)
+	}
+	date := parsed.Header.Get("Date")
+	if date == "" {
+		t.Fatal("Date header is missing")
+	}
+	if _, err := stdmail.ParseDate(date); err != nil {
+		t.Fatalf("Date header is not RFC 5322 parseable: %v", err)
+	}
+}
+
+func TestBuildVerificationEmailHandlesMaximumDurationWithoutOverflow(t *testing.T) {
+	const want = "9223372037 秒"
+	if got := expiryLabel(time.Duration(math.MaxInt64)); got != want {
+		t.Fatalf("maximum duration label = %q, want %q", got, want)
+	}
+	message, err := BuildVerificationEmail(VerificationEmail{
+		From:      "sender@example.com",
+		To:        "reader@example.com",
+		Code:      "123456",
+		Purpose:   "register",
+		ExpiresIn: time.Duration(math.MaxInt64),
+	})
+	if err != nil {
+		t.Fatalf("BuildVerificationEmail: %v", err)
+	}
+	parsed := parseVerificationEmail(t, message)
+	if !strings.Contains(parsed.plain, want) || !strings.Contains(parsed.html, want) {
+		t.Fatalf("maximum duration expiry missing or overflowed: plain=%q html=%q", parsed.plain, parsed.html)
 	}
 }
 
@@ -307,14 +416,17 @@ func parseVerificationEmail(t *testing.T, raw []byte) parsedVerificationEmail {
 		case "multipart/alternative":
 			alternative := multipart.NewReader(part, partParams["boundary"])
 			for {
-				bodyPart, err := alternative.NextPart()
+				bodyPart, err := alternative.NextRawPart()
 				if err == io.EOF {
 					break
 				}
 				if err != nil {
 					t.Fatalf("read alternative part: %v", err)
 				}
-				body, err := io.ReadAll(bodyPart)
+				if got := bodyPart.Header.Get("Content-Transfer-Encoding"); got != "quoted-printable" {
+					t.Fatalf("%s Content-Transfer-Encoding = %q, want quoted-printable", bodyPart.Header.Get("Content-Type"), got)
+				}
+				body, err := io.ReadAll(quotedprintable.NewReader(bodyPart))
 				if err != nil {
 					t.Fatalf("read body part: %v", err)
 				}
@@ -359,6 +471,89 @@ func parseVerificationEmail(t *testing.T, raw []byte) parsedVerificationEmail {
 		t.Fatal("To header missing")
 	}
 	return result
+}
+
+func receiveSMTPMessage(conn net.Conn) (string, string, []byte, error) {
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	writeResponse := func(response string) error {
+		if _, err := writer.WriteString(response); err != nil {
+			return err
+		}
+		return writer.Flush()
+	}
+	if err := writeResponse("220 localhost ESMTP\r\n"); err != nil {
+		return "", "", nil, err
+	}
+
+	var from, to string
+	var deliveredMessage []byte
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "", "", nil, err
+		}
+		command := strings.TrimRight(line, "\r\n")
+		upper := strings.ToUpper(command)
+		switch {
+		case strings.HasPrefix(upper, "EHLO "):
+			if err := writeResponse("250-localhost\r\n250-AUTH PLAIN\r\n250 8BITMIME\r\n"); err != nil {
+				return "", "", nil, err
+			}
+		case strings.HasPrefix(upper, "AUTH PLAIN"):
+			if err := writeResponse("235 2.7.0 Authentication successful\r\n"); err != nil {
+				return "", "", nil, err
+			}
+		case strings.HasPrefix(upper, "MAIL FROM:"):
+			from = smtpEnvelopeAddress(command)
+			if err := writeResponse("250 OK\r\n"); err != nil {
+				return "", "", nil, err
+			}
+		case strings.HasPrefix(upper, "RCPT TO:"):
+			to = smtpEnvelopeAddress(command)
+			if err := writeResponse("250 OK\r\n"); err != nil {
+				return "", "", nil, err
+			}
+		case upper == "DATA":
+			if err := writeResponse("354 End data with <CR><LF>.<CR><LF>\r\n"); err != nil {
+				return "", "", nil, err
+			}
+			var message bytes.Buffer
+			for {
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					return "", "", nil, err
+				}
+				if bytes.Equal(line, []byte(".\r\n")) {
+					break
+				}
+				if bytes.HasPrefix(line, []byte("..")) {
+					line = line[1:]
+				}
+				message.Write(line)
+			}
+			if err := writeResponse("250 OK\r\n"); err != nil {
+				return "", "", nil, err
+			}
+			deliveredMessage = append([]byte(nil), message.Bytes()...)
+		case upper == "QUIT":
+			if err := writeResponse("221 Bye\r\n"); err != nil {
+				return "", "", nil, err
+			}
+			return from, to, deliveredMessage, nil
+		default:
+			return "", "", nil, fmt.Errorf("unexpected SMTP command %q", command)
+		}
+	}
+}
+
+func smtpEnvelopeAddress(command string) string {
+	start := strings.IndexByte(command, '<')
+	end := strings.IndexByte(command, '>')
+	if start < 0 || end <= start {
+		return ""
+	}
+	return command[start+1 : end]
 }
 
 func ExampleBuildVerificationEmail() {

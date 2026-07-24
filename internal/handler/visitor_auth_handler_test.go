@@ -5,8 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	stdmail "net/mail"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -264,7 +269,13 @@ func TestSendEmailCodeConcurrentRequestsUseSingleSender(t *testing.T) {
 
 	firstDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() { firstDone <- performEmailCodeRequest(t, engine, request) }()
-	<-started
+	select {
+	case <-started:
+	case first := <-firstDone:
+		t.Fatalf("sender callback was not reached; status=%d body=%s", first.Code, first.Body.String())
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for sender callback")
+	}
 	secondDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() { secondDone <- performEmailCodeRequest(t, engine, request) }()
 
@@ -361,17 +372,10 @@ func newEmailCodeTestHandler(t *testing.T, send func(string, string, string) err
 	var sender blogmail.Sender = fakeVerificationEmailSender{
 		calls: sendCalls,
 		send: func(email string, message []byte) error {
-			content := string(message)
-			purpose := "register"
-			if strings.Contains(content, "重置密码") {
-				purpose = "reset"
+			code, purpose, err := decodeVerificationEmailText(message)
+			if err != nil {
+				return err
 			}
-			const marker = "验证码："
-			start := strings.Index(content, marker)
-			if start < 0 || len(content) < start+len(marker)+6 {
-				return errors.New("verification code missing from generated message")
-			}
-			code := content[start+len(marker) : start+len(marker)+6]
 			return send(email, code, purpose)
 		},
 	}
@@ -381,6 +385,50 @@ func newEmailCodeTestHandler(t *testing.T, send func(string, string, string) err
 	engine := gin.New()
 	engine.POST("/", handler.SendEmailCode)
 	return handler, engine, db, sendCalls, &now
+}
+
+func decodeVerificationEmailText(raw []byte) (string, string, error) {
+	message, err := stdmail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return "", "", fmt.Errorf("parse verification email: %w", err)
+	}
+	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	if err != nil {
+		return "", "", fmt.Errorf("parse related content type: %w", err)
+	}
+	if mediaType != "multipart/related" {
+		return "", "", fmt.Errorf("related content type = %q", mediaType)
+	}
+	relatedPart, err := multipart.NewReader(message.Body, params["boundary"]).NextPart()
+	if err != nil {
+		return "", "", fmt.Errorf("read related part: %w", err)
+	}
+	mediaType, params, err = mime.ParseMediaType(relatedPart.Header.Get("Content-Type"))
+	if err != nil {
+		return "", "", fmt.Errorf("parse alternative content type: %w", err)
+	}
+	if mediaType != "multipart/alternative" {
+		return "", "", fmt.Errorf("alternative content type = %q", mediaType)
+	}
+	textPart, err := multipart.NewReader(relatedPart, params["boundary"]).NextPart()
+	if err != nil {
+		return "", "", fmt.Errorf("read text part: %w", err)
+	}
+	content, err := io.ReadAll(textPart)
+	if err != nil {
+		return "", "", fmt.Errorf("read text body: %w", err)
+	}
+	const marker = "验证码："
+	start := strings.Index(string(content), marker)
+	if start < 0 || len(content) < start+len(marker)+6 {
+		return "", "", errors.New("verification code missing from generated message")
+	}
+	code := string(content[start+len(marker) : start+len(marker)+6])
+	purpose := "register"
+	if strings.Contains(string(content), "重置密码") {
+		purpose = "reset"
+	}
+	return code, purpose, nil
 }
 
 func performEmailCodeRequest(t *testing.T, engine http.Handler, body map[string]string) *httptest.ResponseRecorder {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"mime/quotedprintable"
 	"net/textproto"
 	"regexp"
 	"strings"
@@ -70,20 +71,22 @@ func BuildVerificationEmail(email VerificationEmail) ([]byte, error) {
 	alternative := multipart.NewWriter(&alternativeBody)
 	plainHeader := make(textproto.MIMEHeader)
 	plainHeader.Set("Content-Type", "text/plain; charset=UTF-8")
+	plainHeader.Set("Content-Transfer-Encoding", "quoted-printable")
 	plainPart, err := alternative.CreatePart(plainHeader)
 	if err != nil {
 		return nil, fmt.Errorf("create plain text part: %w", err)
 	}
-	if _, err := io.WriteString(plainPart, plainText); err != nil {
+	if err := writeQuotedPrintable(plainPart, plainText); err != nil {
 		return nil, fmt.Errorf("write plain text part: %w", err)
 	}
 	htmlHeader := make(textproto.MIMEHeader)
 	htmlHeader.Set("Content-Type", "text/html; charset=UTF-8")
+	htmlHeader.Set("Content-Transfer-Encoding", "quoted-printable")
 	htmlPart, err := alternative.CreatePart(htmlHeader)
 	if err != nil {
 		return nil, fmt.Errorf("create HTML part: %w", err)
 	}
-	if _, err := io.WriteString(htmlPart, htmlBody); err != nil {
+	if err := writeQuotedPrintable(htmlPart, htmlBody); err != nil {
 		return nil, fmt.Errorf("write HTML part: %w", err)
 	}
 	if err := alternative.Close(); err != nil {
@@ -122,6 +125,7 @@ func BuildVerificationEmail(email VerificationEmail) ([]byte, error) {
 	fmt.Fprintf(&message, "From: %s\r\n", fromHeader)
 	fmt.Fprintf(&message, "To: %s\r\n", toHeader)
 	fmt.Fprintf(&message, "Subject: %s\r\n", mime.BEncoding.Encode("UTF-8", subject))
+	fmt.Fprintf(&message, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
 	message.WriteString("MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&message, "Content-Type: %s\r\n\r\n", mime.FormatMediaType("multipart/related", map[string]string{"boundary": related.Boundary()}))
 	message.Write(body.Bytes())
@@ -178,11 +182,29 @@ func buildHTMLBody(copy emailCopy, code, expires string) string {
 }
 
 func expiryLabel(expiresIn time.Duration) string {
-	seconds := int64((expiresIn + time.Second - 1) / time.Second)
+	seconds := int64(expiresIn / time.Second)
+	if expiresIn%time.Second != 0 {
+		seconds++
+	}
 	if seconds%60 == 0 {
 		return fmt.Sprintf("%d 分钟", seconds/60)
 	}
 	return fmt.Sprintf("%d 秒", seconds)
+}
+
+func writeQuotedPrintable(writer io.Writer, content string) error {
+	encoded := quotedprintable.NewWriter(writer)
+	if _, err := io.WriteString(encoded, normalizeCRLF(content)); err != nil {
+		_ = encoded.Close()
+		return err
+	}
+	return encoded.Close()
+}
+
+func normalizeCRLF(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	return strings.ReplaceAll(content, "\n", "\r\n")
 }
 
 func writeBase64Lines(writer io.Writer, data []byte) error {
