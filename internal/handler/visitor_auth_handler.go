@@ -99,7 +99,8 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 		return
 	}
 
-	if retryAfter := h.codeLimiter.RetryAfter(email, purpose); retryAfter > 0 {
+	reservation, retryAfter := h.codeLimiter.Reserve(email, purpose)
+	if retryAfter > 0 {
 		seconds := int(math.Ceil(retryAfter.Seconds()))
 		if seconds < 1 {
 			seconds = 1
@@ -112,12 +113,13 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 		)
 		return
 	}
+	defer reservation.Rollback()
 
 	if purpose == "reset" {
 		var user model.User
 		err := h.db.Where("email = ? AND role = ?", email, model.UserRoleVisitor).First(&user).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			h.codeLimiter.MarkSent(email, purpose)
+			reservation.Commit()
 			h.respondEmailCodeSent(c)
 			return
 		}
@@ -151,12 +153,17 @@ func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 
 	if h.mailConfigured() {
 		if err := h.deliverCodeEmail(email, code, purpose); err != nil {
+			if purpose == "reset" {
+				reservation.Commit()
+				h.respondEmailCodeSent(c)
+				return
+			}
 			response.Error(c, http.StatusInternalServerError, 500, "验证码暂时无法发送，请稍后再试")
 			return
 		}
 	}
 
-	h.codeLimiter.MarkSent(email, purpose)
+	reservation.Commit()
 	h.respondEmailCodeSent(c)
 }
 
@@ -323,8 +330,8 @@ func (h VisitorAuthHandler) verifyCode(email string, code string, purpose string
 		// Backward-compatible fallback for codes created before purpose column existed.
 		if purpose == "register" {
 			err = h.db.Where(
-				"email = ? AND used_at IS NULL AND expires_at > ?",
-				email, h.now(),
+				"email = ? AND purpose = ? AND used_at IS NULL AND expires_at > ?",
+				email, "", h.now(),
 			).Order("created_at desc").First(&verification).Error
 		}
 		if err != nil {
@@ -406,7 +413,7 @@ func (h VisitorAuthHandler) sendCodeEmail(email string, code string, purpose str
               </div>
               
               <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #70757A;">
-                ⏱️ 验证码有效期为 <strong>10 分钟</strong>。若非本人操作，请忽略此邮件。
+                ⏱️ 验证码有效期为 <strong>%s</strong>。若非本人操作，请忽略此邮件。
               </p>
             </td>
           </tr>
@@ -422,7 +429,7 @@ func (h VisitorAuthHandler) sendCodeEmail(email string, code string, purpose str
     </tr>
   </table>
 </body>
-</html>`, subject, actionTitle, actionDesc, code)
+</html>`, subject, actionTitle, actionDesc, code, verificationCodeExpiryLabel(h.cfg.VerificationCode.ExpiresIn))
 
 	message := strings.Join([]string{
 		"From: " + from,
@@ -435,6 +442,14 @@ func (h VisitorAuthHandler) sendCodeEmail(email string, code string, purpose str
 	}, "\r\n")
 
 	return smtp.SendMail(address, authenticator, from, []string{email}, []byte(message))
+}
+
+func verificationCodeExpiryLabel(expiresIn time.Duration) string {
+	seconds := durationSeconds(expiresIn)
+	if seconds > 0 && seconds%60 == 0 {
+		return fmt.Sprintf("%d 分钟", seconds/60)
+	}
+	return fmt.Sprintf("%d 秒", seconds)
 }
 
 func encodeMailSubject(subject string) string {

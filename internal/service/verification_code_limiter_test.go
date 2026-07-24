@@ -43,7 +43,11 @@ func TestVerificationCodeLimiterNormalizesEmailAndIsolatesKeys(t *testing.T) {
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
 	limiter := NewVerificationCodeLimiter(time.Minute, func() time.Time { return now })
 
-	limiter.MarkSent("  Reader@Example.COM ", "register")
+	reservation, retryAfter := limiter.Reserve("  Reader@Example.COM ", "register")
+	if retryAfter != 0 || reservation == nil {
+		t.Fatalf("initial reserve = (%v, %v), want reservation with no retry", reservation, retryAfter)
+	}
+	reservation.Commit()
 
 	if got := limiter.RetryAfter("reader@example.com", "register"); got != time.Minute {
 		t.Fatalf("normalized email retry = %v, want %v", got, time.Minute)
@@ -60,7 +64,11 @@ func TestVerificationCodeLimiterExpiresAndCleansEntry(t *testing.T) {
 	base := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
 	now := base
 	limiter := NewVerificationCodeLimiter(time.Minute, func() time.Time { return now })
-	limiter.MarkSent("reader@example.com", "register")
+	reservation, retryAfter := limiter.Reserve("reader@example.com", "register")
+	if retryAfter != 0 || reservation == nil {
+		t.Fatalf("initial reserve = (%v, %v), want reservation with no retry", reservation, retryAfter)
+	}
+	reservation.Commit()
 
 	now = base.Add(61 * time.Second)
 	if got := limiter.RetryAfter("reader@example.com", "register"); got != 0 {
@@ -75,24 +83,97 @@ func TestVerificationCodeLimiterExpiresAndCleansEntry(t *testing.T) {
 	}
 }
 
-func TestVerificationCodeLimiterConcurrentAccess(t *testing.T) {
+func TestVerificationCodeLimiterConcurrentReservationsAllowOnlyOne(t *testing.T) {
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
 	limiter := NewVerificationCodeLimiter(time.Minute, func() time.Time { return now })
 
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var reservations []*VerificationCodeReservation
 	for i := 0; i < 64; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
-				limiter.MarkSent(" Reader@Example.COM ", "register")
-				_ = limiter.RetryAfter("reader@example.com", "register")
+			reservation, _ := limiter.Reserve(" Reader@Example.COM ", "register")
+			if reservation != nil {
+				mu.Lock()
+				reservations = append(reservations, reservation)
+				mu.Unlock()
 			}
 		}()
 	}
 	wg.Wait()
 
+	if len(reservations) != 1 {
+		t.Fatalf("successful concurrent reservations = %d, want 1", len(reservations))
+	}
+	reservations[0].Commit()
 	if got := limiter.RetryAfter("reader@example.com", "register"); got != time.Minute {
 		t.Fatalf("retry after concurrent access = %v, want %v", got, time.Minute)
+	}
+}
+
+func TestVerificationCodeLimiterPrunesExpiredEntriesOnUnrelatedReserve(t *testing.T) {
+	base := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	now := base
+	limiter := NewVerificationCodeLimiter(time.Minute, func() time.Time { return now })
+	limiter.maxEntries = 2
+
+	first, _ := limiter.Reserve("first@example.com", "register")
+	second, _ := limiter.Reserve("second@example.com", "register")
+	first.Commit()
+	second.Commit()
+
+	now = base.Add(time.Minute + time.Second)
+	third, retryAfter := limiter.Reserve("third@example.com", "register")
+	if retryAfter != 0 || third == nil {
+		t.Fatalf("reserve after expiry = (%v, %v), want reservation with no retry", third, retryAfter)
+	}
+	if got := len(limiter.entries); got != 1 {
+		t.Fatalf("entries after unrelated prune = %d, want 1", got)
+	}
+}
+
+func TestVerificationCodeLimiterCapacityDoesNotEvictInflightReservation(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	limiter := NewVerificationCodeLimiter(time.Minute, func() time.Time { return now })
+	limiter.maxEntries = 1
+
+	first, retryAfter := limiter.Reserve("first@example.com", "register")
+	if retryAfter != 0 || first == nil {
+		t.Fatalf("initial reserve = (%v, %v), want reservation with no retry", first, retryAfter)
+	}
+	second, retryAfter := limiter.Reserve("second@example.com", "register")
+	if second != nil || retryAfter <= 0 {
+		t.Fatalf("reserve at capacity = (%v, %v), want rejection with retry", second, retryAfter)
+	}
+	if got := limiter.RetryAfter("first@example.com", "register"); got <= 0 {
+		t.Fatalf("in-flight reservation was evicted, retryAfter = %v", got)
+	}
+
+	first.Rollback()
+	second, retryAfter = limiter.Reserve("second@example.com", "register")
+	if retryAfter != 0 || second == nil {
+		t.Fatalf("reserve after rollback = (%v, %v), want reservation with no retry", second, retryAfter)
+	}
+}
+
+func TestVerificationCodeLimiterCapacityRejectsUntilCommittedEntryExpires(t *testing.T) {
+	base := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	now := base
+	limiter := NewVerificationCodeLimiter(time.Minute, func() time.Time { return now })
+	limiter.maxEntries = 1
+
+	first, _ := limiter.Reserve("first@example.com", "register")
+	first.Commit()
+	second, retryAfter := limiter.Reserve("second@example.com", "register")
+	if second != nil || retryAfter != time.Minute {
+		t.Fatalf("reserve at committed capacity = (%v, %v), want nil and %v", second, retryAfter, time.Minute)
+	}
+
+	now = base.Add(time.Minute + time.Second)
+	second, retryAfter = limiter.Reserve("second@example.com", "register")
+	if retryAfter != 0 || second == nil {
+		t.Fatalf("reserve after capacity expiry = (%v, %v), want reservation with no retry", second, retryAfter)
 	}
 }

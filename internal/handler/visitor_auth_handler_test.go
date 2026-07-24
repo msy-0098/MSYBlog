@@ -12,6 +12,8 @@ import (
 	"net/mail"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"masenyu.top/blog/backend/internal/auth"
 	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/service"
@@ -43,7 +46,36 @@ func TestSendCodeEmailUsesRegistrationEmailAsRecipient(t *testing.T) {
 	}
 }
 
+func TestSendCodeEmailUsesConfiguredExpiryInBody(t *testing.T) {
+	host, port := startSMTPServerRequiringMessage(
+		t,
+		"sender@example.com",
+		"reader@example.com",
+		"验证码有效期为 <strong>12 分钟</strong>",
+	)
+	handler := VisitorAuthHandler{
+		cfg: config.Config{
+			Mail: config.MailConfig{
+				SMTPHost: host,
+				SMTPPort: port,
+				Username: "sender@example.com",
+				Password: "smtp-password",
+				From:     "sender@example.com",
+			},
+			VerificationCode: config.VerificationCodeConfig{ExpiresIn: 12 * time.Minute},
+		},
+	}
+
+	if err := handler.sendCodeEmail("reader@example.com", "123456", "register"); err != nil {
+		t.Fatalf("expected configured expiry in email body, got %v", err)
+	}
+}
+
 func startSMTPServerRequiringHeaders(t *testing.T, expectedFrom string, expectedTo string) (string, string) {
+	return startSMTPServerRequiringMessage(t, expectedFrom, expectedTo, "")
+}
+
+func startSMTPServerRequiringMessage(t *testing.T, expectedFrom string, expectedTo string, expectedBody string) (string, string) {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -59,7 +91,7 @@ func startSMTPServerRequiringHeaders(t *testing.T, expectedFrom string, expected
 			return
 		}
 		defer conn.Close()
-		done <- handleSMTPConnection(conn, expectedFrom, expectedTo)
+		done <- handleSMTPConnection(conn, expectedFrom, expectedTo, expectedBody)
 	}()
 
 	t.Cleanup(func() {
@@ -77,7 +109,7 @@ func startSMTPServerRequiringHeaders(t *testing.T, expectedFrom string, expected
 	return "localhost", port
 }
 
-func handleSMTPConnection(conn net.Conn, expectedFrom string, expectedTo string) error {
+func handleSMTPConnection(conn net.Conn, expectedFrom string, expectedTo string, expectedBody string) error {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 	var recipient string
@@ -133,7 +165,8 @@ func handleSMTPConnection(conn net.Conn, expectedFrom string, expectedTo string)
 				return err
 			}
 			parsed, err := mail.ReadMessage(strings.NewReader(message))
-			if err != nil || parsed.Header.Get("From") != expectedFrom || parsed.Header.Get("To") != expectedTo {
+			if err != nil || parsed.Header.Get("From") != expectedFrom || parsed.Header.Get("To") != expectedTo ||
+				(expectedBody != "" && !strings.Contains(message, expectedBody)) {
 				if err := writeLine(`550 The "From" or "To" header is missing or invalid`); err != nil {
 					return err
 				}
@@ -204,8 +237,8 @@ func TestSendEmailCodeRejectsUnknownPurpose(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
 	}
-	if *sendCalls != 0 {
-		t.Fatalf("send calls = %d, want 0", *sendCalls)
+	if sendCalls.Load() != 0 {
+		t.Fatalf("send calls = %d, want 0", sendCalls.Load())
 	}
 }
 
@@ -233,8 +266,8 @@ func TestSendEmailCodeReturnsConfiguredSuccessDataAndNormalizesEmail(t *testing.
 	if body.Data.CooldownSeconds != 60 || body.Data.ExpiresIn != 600 {
 		t.Fatalf("unexpected timing data: %#v", body.Data)
 	}
-	if *sendCalls != 1 || sentEmail != "reader@example.com" || sentPurpose != "register" {
-		t.Fatalf("send calls=%d email=%q purpose=%q", *sendCalls, sentEmail, sentPurpose)
+	if sendCalls.Load() != 1 || sentEmail != "reader@example.com" || sentPurpose != "register" {
+		t.Fatalf("send calls=%d email=%q purpose=%q", sendCalls.Load(), sentEmail, sentPurpose)
 	}
 
 	var verification model.EmailVerificationCode
@@ -264,8 +297,8 @@ func TestSendEmailCodeCooldownReturnsRetryAfter(t *testing.T) {
 	if body.Message != "请求过于频繁，请稍后再试" || body.Data.RetryAfter != 1 {
 		t.Fatalf("unexpected rounded cooldown response: %#v", body)
 	}
-	if *sendCalls != 1 {
-		t.Fatalf("send calls = %d, want 1", *sendCalls)
+	if sendCalls.Load() != 1 {
+		t.Fatalf("send calls = %d, want 1", sendCalls.Load())
 	}
 }
 
@@ -284,8 +317,8 @@ func TestSendEmailCodeUnknownResetDoesNotRevealAccountOrSend(t *testing.T) {
 	if unknownBody.Data.CooldownSeconds != 60 || unknownBody.Data.ExpiresIn != 600 {
 		t.Fatalf("unexpected unknown reset timing data: %#v", unknownBody.Data)
 	}
-	if *sendCalls != 0 {
-		t.Fatalf("unknown reset send calls = %d, want 0", *sendCalls)
+	if sendCalls.Load() != 0 {
+		t.Fatalf("unknown reset send calls = %d, want 0", sendCalls.Load())
 	}
 	var count int64
 	if err := db.Model(&model.EmailVerificationCode{}).Count(&count).Error; err != nil {
@@ -311,8 +344,8 @@ func TestSendEmailCodeUnknownResetDoesNotRevealAccountOrSend(t *testing.T) {
 	if known.Code != http.StatusOK || known.Body.String() != unknown.Body.String() {
 		t.Fatalf("unknown reset response differs from known success: unknown=%s known=%s", unknown.Body.String(), known.Body.String())
 	}
-	if *sendCalls != 1 {
-		t.Fatalf("known reset send calls after unknown reset = %d, want 1", *sendCalls)
+	if sendCalls.Load() != 1 {
+		t.Fatalf("known reset send calls after unknown reset = %d, want 1", sendCalls.Load())
 	}
 
 	second := performEmailCodeRequest(t, engine, map[string]string{
@@ -345,12 +378,131 @@ func TestSendEmailCodeSMTPFailureDoesNotStartCooldown(t *testing.T) {
 	if second.Code != http.StatusInternalServerError {
 		t.Fatalf("second status = %d, want %d; body=%s", second.Code, http.StatusInternalServerError, second.Body.String())
 	}
-	if *sendCalls != 2 {
-		t.Fatalf("send calls = %d, want 2 so failed attempts are not cooled down", *sendCalls)
+	if sendCalls.Load() != 2 {
+		t.Fatalf("send calls = %d, want 2 so failed attempts are not cooled down", sendCalls.Load())
 	}
 }
 
-func newEmailCodeTestHandler(t *testing.T, send func(string, string, string) error) (VisitorAuthHandler, *gin.Engine, *gorm.DB, *int, *time.Time) {
+func TestSendEmailCodeKnownResetSenderFailureMatchesUnknownReset(t *testing.T) {
+	_, engine, db, sendCalls, _ := newEmailCodeTestHandler(t, func(string, string, string) error {
+		return errors.New("smtp password=top-secret code=123456")
+	})
+
+	unknown := performEmailCodeRequest(t, engine, map[string]string{
+		"email":   "missing@example.com",
+		"purpose": "reset",
+	})
+	if err := db.Create(&model.User{
+		Username:     "known@example.com",
+		Email:        "known@example.com",
+		Nickname:     "Known",
+		Role:         model.UserRoleVisitor,
+		PasswordHash: "hash",
+	}).Error; err != nil {
+		t.Fatalf("create known visitor: %v", err)
+	}
+	known := performEmailCodeRequest(t, engine, map[string]string{
+		"email":   "known@example.com",
+		"purpose": "reset",
+	})
+
+	if known.Code != unknown.Code || known.Body.String() != unknown.Body.String() {
+		t.Fatalf("known reset failure reveals account: unknown=%d %s known=%d %s", unknown.Code, unknown.Body.String(), known.Code, known.Body.String())
+	}
+	if sendCalls.Load() != 1 {
+		t.Fatalf("known reset send calls = %d, want 1", sendCalls.Load())
+	}
+	knownRetry := performEmailCodeRequest(t, engine, map[string]string{
+		"email":   "known@example.com",
+		"purpose": "reset",
+	})
+	knownRetryBody := decodeEmailCodeEnvelope(t, knownRetry)
+	if knownRetry.Code != http.StatusTooManyRequests || knownRetryBody.Data.RetryAfter != 60 {
+		t.Fatalf("known reset failure cooldown missing: status=%d body=%#v", knownRetry.Code, knownRetryBody)
+	}
+	if sendCalls.Load() != 1 {
+		t.Fatalf("known reset sender retried during cooldown: calls=%d", sendCalls.Load())
+	}
+}
+
+func TestSendEmailCodeConcurrentRequestsUseSingleSender(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	_, engine, _, sendCalls, _ := newEmailCodeTestHandler(t, func(string, string, string) error {
+		startedOnce.Do(func() { close(started) })
+		<-release
+		return nil
+	})
+	request := map[string]string{"email": "reader@example.com", "purpose": "register"}
+
+	firstDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { firstDone <- performEmailCodeRequest(t, engine, request) }()
+	<-started
+	secondDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { secondDone <- performEmailCodeRequest(t, engine, request) }()
+
+	var second *httptest.ResponseRecorder
+	secondTimedOut := false
+	select {
+	case second = <-secondDone:
+	case <-time.After(time.Second):
+		secondTimedOut = true
+	}
+	close(release)
+	first := <-firstDone
+	if secondTimedOut {
+		second = <-secondDone
+		t.Fatalf("second request blocked instead of receiving cooldown response; status after release = %d", second.Code)
+	}
+
+	if first.Code != http.StatusOK || second.Code != http.StatusTooManyRequests {
+		t.Fatalf("concurrent statuses = first %d, second %d", first.Code, second.Code)
+	}
+	if sendCalls.Load() != 1 {
+		t.Fatalf("concurrent sender calls = %d, want 1", sendCalls.Load())
+	}
+}
+
+func TestVerifyCodeDoesNotUseResetCodeForRegisterFallback(t *testing.T) {
+	handler, _, db, _, now := newEmailCodeTestHandler(t, func(string, string, string) error { return nil })
+	codeHash, err := auth.HashPassword("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	if err := db.Create(&model.EmailVerificationCode{
+		Email:     "reader@example.com",
+		Purpose:   "reset",
+		CodeHash:  codeHash,
+		ExpiresAt: now.Add(time.Minute),
+	}).Error; err != nil {
+		t.Fatalf("create reset code: %v", err)
+	}
+
+	if handler.verifyCode("reader@example.com", "123456", "register") {
+		t.Fatal("register accepted a reset verification code")
+	}
+}
+
+func TestVerifyCodeAllowsLegacyEmptyPurposeForRegister(t *testing.T) {
+	handler, _, db, _, now := newEmailCodeTestHandler(t, func(string, string, string) error { return nil })
+	codeHash, err := auth.HashPassword("123456")
+	if err != nil {
+		t.Fatalf("hash code: %v", err)
+	}
+	if err := db.Exec(
+		"INSERT INTO email_verification_codes (email, purpose, code_hash, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		"reader@example.com", "", codeHash, now.Add(time.Minute), *now, *now,
+	).Error; err != nil {
+		t.Fatalf("create legacy code: %v", err)
+	}
+
+	if !handler.verifyCode("reader@example.com", "123456", "register") {
+		t.Fatal("register rejected a legacy verification code with empty purpose")
+	}
+}
+
+func newEmailCodeTestHandler(t *testing.T, send func(string, string, string) error) (VisitorAuthHandler, *gin.Engine, *gorm.DB, *atomic.Int32, *time.Time) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -381,15 +533,15 @@ func newEmailCodeTestHandler(t *testing.T, send func(string, string, string) err
 	limiter := service.NewVerificationCodeLimiter(cfg.VerificationCode.Cooldown, func() time.Time { return now })
 	handler := NewVisitorAuthHandler(db, cfg, limiter)
 	handler.now = func() time.Time { return now }
-	sendCalls := 0
+	sendCalls := &atomic.Int32{}
 	handler.sendCodeEmailFunc = func(email string, code string, purpose string) error {
-		sendCalls++
+		sendCalls.Add(1)
 		return send(email, code, purpose)
 	}
 
 	engine := gin.New()
 	engine.POST("/", handler.SendEmailCode)
-	return handler, engine, db, &sendCalls, &now
+	return handler, engine, db, sendCalls, &now
 }
 
 func performEmailCodeRequest(t *testing.T, engine http.Handler, body map[string]string) *httptest.ResponseRecorder {
