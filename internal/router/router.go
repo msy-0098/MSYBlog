@@ -1,6 +1,7 @@
 package router
 
 import (
+	"strings"
 	"net/http"
 	"time"
 
@@ -53,13 +54,20 @@ func New(deps Dependencies) *gin.Engine {
 	siteHandler := handler.NewSiteHandler(deps.Database, deps.Config)
 	blogHandler := handler.NewBlogHandler(deps.Database)
 	feedHandler := handler.NewFeedHandler(deps.Database, deps.Config)
-	commentHandler := handler.NewCommentHandler(deps.Database)
+	mailSender := configuredMailSender(deps.Config)
+	mailFrom := strings.TrimSpace(deps.Config.Mail.From)
+	if mailFrom == "" {
+		mailFrom = strings.TrimSpace(deps.Config.Mail.Username)
+	}
+	notificationService := service.NewNotificationService(deps.Database, mailSender, mailFrom, deps.Config.Site.Domain, nil)
+	commentHandler := handler.NewCommentHandlerWithNotifications(deps.Database, notificationService)
 	verificationCodeLimiter := service.NewVerificationCodeLimiter(deps.Config.VerificationCode.Cooldown, time.Now)
-	visitorAuthHandler := handler.NewVisitorAuthHandler(deps.Database, deps.Config, verificationCodeLimiter, configuredMailSender(deps.Config))
+	visitorAuthHandler := handler.NewVisitorAuthHandler(deps.Database, deps.Config, verificationCodeLimiter, mailSender).WithNotifications(notificationService)
 	adminAuthHandler := handler.NewAdminAuthHandler(deps.Database, deps.Config.Auth.JWTSecret)
 	adminContentHandler := handler.NewAdminContentHandler(deps.Database, deps.Config)
 	adminDashboardHandler := handler.NewAdminDashboardHandler(deps.Database)
-	adminInsightHandler := handler.NewAdminInsightHandlerWithRuntime(deps.Database, aiClient, aiRuntime, deps.Config.AI.Model)
+	adminInsightHandler := handler.NewAdminInsightHandlerWithRuntime(deps.Database, aiClient, aiRuntime, deps.Config.AI.Model).WithNotifications(notificationService)
+	adminNotificationHandler := handler.NewAdminNotificationHandler(notificationService)
 	adminAIHandler := handler.NewAdminAIHandler(service.NewAIConversationServiceWithRuntime(deps.Database, aiClient, aiRuntime, deps.Config.AI.Model))
 	adminAIStatusHandler := handler.NewAdminAIStatusHandler(aiRuntime, deps.Config.AI.Provider, deps.Config.AI.Model, deps.Config.AI.BaseURL)
 	limiter := middleware.NewRateLimiter()
@@ -118,6 +126,10 @@ func New(deps Dependencies) *gin.Engine {
 	admin.PATCH("/ai/conversations/:id", adminAIHandler.Rename)
 	admin.DELETE("/ai/conversations/:id", adminAIHandler.Delete)
 	admin.POST("/ai/conversations/:id/messages/stream", adminAIHandler.StreamMessage)
+	admin.GET("/notifications", adminNotificationHandler.List)
+	admin.GET("/notifications/unread-count", adminNotificationHandler.UnreadCount)
+	admin.POST("/notifications/read-all", adminNotificationHandler.MarkAllRead)
+	admin.POST("/notifications/:id/read", adminNotificationHandler.MarkRead)
 	admin.GET("/comments", commentHandler.ListAdminComments)
 	admin.PUT("/comments/:id", commentHandler.UpdateAdminComment)
 	admin.DELETE("/comments/:id", commentHandler.DeleteAdminComment)

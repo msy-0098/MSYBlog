@@ -24,6 +24,7 @@ func Models() []any {
 		&model.IPBan{},
 		&model.AIConversation{},
 		&model.AIMessage{},
+		&model.Notification{},
 	}
 }
 

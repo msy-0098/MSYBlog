@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,10 +20,11 @@ import (
 )
 
 type AdminInsightHandler struct {
-	db       *gorm.DB
-	aiClient ai.ChatClient
-	runtime  *service.AIRuntime
-	model    string
+	db            *gorm.DB
+	aiClient      ai.ChatClient
+	runtime       *service.AIRuntime
+	model         string
+	notifications *service.NotificationService
 }
 
 type AdminVisitorDTO struct {
@@ -100,6 +102,11 @@ func NewAdminInsightHandler(db *gorm.DB, aiClient ai.ChatClient, modelName strin
 
 func NewAdminInsightHandlerWithRuntime(db *gorm.DB, aiClient ai.ChatClient, runtime *service.AIRuntime, modelName string) AdminInsightHandler {
 	return AdminInsightHandler{db: db, aiClient: aiClient, runtime: runtime, model: modelName}
+}
+
+func (h AdminInsightHandler) WithNotifications(notifications *service.NotificationService) AdminInsightHandler {
+	h.notifications = notifications
+	return h
 }
 
 func (h AdminInsightHandler) ListUsers(c *gin.Context) {
@@ -223,6 +230,17 @@ func (h AdminInsightHandler) CreateBan(c *gin.Context) {
 			internalError(c)
 			return
 		}
+	}
+	if h.notifications != nil {
+		body := "IP " + ip + " 已封禁：" + reason
+		go h.notifications.NotifyAdmins(context.Background(), service.NotifyInput{
+			Kind:       model.NotificationKindSecurity,
+			Title:      "IP 封禁",
+			Body:       body,
+			RefType:    "ip_ban",
+			RefID:      ban.ID,
+			ActionPath: "/admin/security",
+		})
 	}
 	response.Success(c, ipBanDTO(ban))
 }

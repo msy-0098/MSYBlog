@@ -40,5 +40,6 @@ func ExistingBusinessTables() []TableSpec {
 		{Name: "ip_bans", Model: &model.IPBan{}, OrderColumn: "id", HasSequence: true},
 		{Name: "ai_conversations", Model: &model.AIConversation{}, OrderColumn: "id", HasSequence: true, SourceOptional: true},
 		{Name: "ai_messages", Model: &model.AIMessage{}, OrderColumn: "id", HasSequence: true, SourceOptional: true},
+		{Name: "notifications", Model: &model.Notification{}, OrderColumn: "id", HasSequence: true, SourceOptional: true},
 	}
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
@@ -23,12 +24,13 @@ import (
 )
 
 type VisitorAuthHandler struct {
-	db          *gorm.DB
-	cfg         config.Config
-	jwtSecret   string
-	now         func() time.Time
-	codeLimiter *service.VerificationCodeLimiter
-	mailSender  blogmail.Sender
+	db            *gorm.DB
+	cfg           config.Config
+	jwtSecret     string
+	now           func() time.Time
+	codeLimiter   *service.VerificationCodeLimiter
+	mailSender    blogmail.Sender
+	notifications *service.NotificationService
 }
 
 type EmailCodeRequest struct {
@@ -78,6 +80,11 @@ func NewVisitorAuthHandler(db *gorm.DB, cfg config.Config, codeLimiter *service.
 		codeLimiter: codeLimiter,
 		mailSender:  mailSender,
 	}
+}
+
+func (h VisitorAuthHandler) WithNotifications(notifications *service.NotificationService) VisitorAuthHandler {
+	h.notifications = notifications
+	return h
 }
 
 func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
@@ -240,6 +247,21 @@ func (h VisitorAuthHandler) Register(c *gin.Context) {
 	if err != nil {
 		internalError(c)
 		return
+	}
+
+	if h.notifications != nil {
+		body := email + " 完成注册"
+		if nickname != "" {
+			body = nickname + "（" + email + "）完成注册"
+		}
+		go h.notifications.NotifyAdmins(context.Background(), service.NotifyInput{
+			Kind:       model.NotificationKindUser,
+			Title:      "新访客注册",
+			Body:       body,
+			RefType:    "user",
+			RefID:      user.ID,
+			ActionPath: "/admin/users",
+		})
 	}
 
 	middleware.SetAuthCookie(c, middleware.VisitorTokenCookie, token)

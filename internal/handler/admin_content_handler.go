@@ -560,16 +560,21 @@ func (h AdminContentHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	allowed := map[string]bool{
-		"siteTitle":   true,
-		"subtitle":    true,
-		"owner":       true,
-		"domain":      true,
-		"description": true,
-		"github":      true,
-		"gitee":       true,
-		"email":       true,
-		"icp":         true,
-		"navItems":    true,
+		"siteTitle":       true,
+		"subtitle":        true,
+		"owner":           true,
+		"domain":          true,
+		"description":     true,
+		"github":          true,
+		"gitee":           true,
+		"email":           true,
+		"icp":             true,
+		"navItems":        true,
+		"notifyInApp":     true,
+		"notifyEmail":     true,
+		"notifySecurity":  true,
+		"notifyUser":      true,
+		"notifySystem":    true,
 	}
 
 	for key, value := range values {
@@ -588,16 +593,21 @@ func (h AdminContentHandler) UpdateSettings(c *gin.Context) {
 
 func (h AdminContentHandler) effectiveSettings() map[string]string {
 	settings := map[string]string{
-		"siteTitle":    h.cfg.Site.SiteTitle,
-		"subtitle":     h.cfg.Site.Subtitle,
-		"owner":        h.cfg.Site.Owner,
-		"domain":       h.cfg.Site.Domain,
-		"description":  h.cfg.Site.Description,
-		"navItems":     strings.Join(h.cfg.Site.NavItems, ","),
-		"aiProvider":   h.cfg.AI.Provider,
-		"aiModel":      h.cfg.AI.Model,
-		"aiBaseURL":    h.cfg.AI.BaseURL,
-		"aiConfigured": strconv.FormatBool(strings.TrimSpace(h.cfg.AI.APIKey) != ""),
+		"siteTitle":      h.cfg.Site.SiteTitle,
+		"subtitle":       h.cfg.Site.Subtitle,
+		"owner":          h.cfg.Site.Owner,
+		"domain":         h.cfg.Site.Domain,
+		"description":    h.cfg.Site.Description,
+		"navItems":       strings.Join(h.cfg.Site.NavItems, ","),
+		"aiProvider":     h.cfg.AI.Provider,
+		"aiModel":        h.cfg.AI.Model,
+		"aiBaseURL":      h.cfg.AI.BaseURL,
+		"aiConfigured":   strconv.FormatBool(strings.TrimSpace(h.cfg.AI.APIKey) != ""),
+		"notifyInApp":    "true",
+		"notifyEmail":    "true",
+		"notifySecurity": "true",
+		"notifyUser":     "true",
+		"notifySystem":   "false",
 	}
 	for key, value := range h.readSettings() {
 		settings[key] = value

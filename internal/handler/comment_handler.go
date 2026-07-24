@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -11,10 +12,12 @@ import (
 	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
+	"masenyu.top/blog/backend/internal/service"
 )
 
 type CommentHandler struct {
-	db *gorm.DB
+	db            *gorm.DB
+	notifications *service.NotificationService
 }
 
 type CommentRequest struct {
@@ -38,6 +41,10 @@ type CommentDTO struct {
 
 func NewCommentHandler(db *gorm.DB) CommentHandler {
 	return CommentHandler{db: db}
+}
+
+func NewCommentHandlerWithNotifications(db *gorm.DB, notifications *service.NotificationService) CommentHandler {
+	return CommentHandler{db: db, notifications: notifications}
 }
 
 func (h CommentHandler) ListPostComments(c *gin.Context) {
@@ -100,6 +107,31 @@ func (h CommentHandler) CreatePostComment(c *gin.Context) {
 	if err := h.db.Preload("User").Preload("Post").First(&comment, comment.ID).Error; err != nil {
 		internalError(c)
 		return
+	}
+
+	if h.notifications != nil {
+		author := strings.TrimSpace(comment.User.Nickname)
+		if author == "" {
+			author = strings.TrimSpace(comment.User.Email)
+		}
+		if author == "" {
+			author = "访客"
+		}
+		postTitle := strings.TrimSpace(comment.Post.Title)
+		if postTitle == "" {
+			postTitle = post.Title
+		}
+		body := service.CommentNotificationBody(author, postTitle, comment.Content)
+		go h.notifications.NotifyAdmins(context.Background(), service.NotifyInput{
+			Kind:         model.NotificationKindComment,
+			Title:        "新评论待处理",
+			Body:         body,
+			RefType:      "comment",
+			RefID:        comment.ID,
+			EmailSubject: "【马森雨的博客】有新评论",
+			EmailBody:    body,
+			ActionPath:   "/admin/comments",
+		})
 	}
 
 	response.Success(c, commentDTO(comment))

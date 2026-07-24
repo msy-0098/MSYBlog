@@ -18,7 +18,7 @@
 | **Phase 2** | **Admin AI：Provider / Runtime / 健康检查 / 会话可靠性 / 润色 / 运营报告** | **进行中** | 同上 spec §6–9 · `plans/2026-07-23-phase-2-admin-ai-backend.md` |
 | Phase 3 | DB-IP Lite GeoIP 查询 | 未开始（仅文档） | `plans/2026-07-23-phase-3-geoip-backend.md` |
 | Phase 4 | 全站分页（评论游标、管理端列表等） | 部分已有 / 未收口 | `plans/2026-07-23-phase-4-pagination-backend.md` |
-| 旁路 | 消息通知（评论待审站内 + 邮件） | 仅原型，未进本仓实现 | Cursor Canvas 原型；**勿与 Phase 2 抢文件** |
+| 旁路 | 消息通知（站内 + 评论邮件） | **已完成** | 模型/API/铃铛/通知中心/设置偏好；评论/封禁/注册写入 |
 
 状态含义：
 
@@ -118,3 +118,4 @@ cmd/server/main.go                 # 仅 AI 依赖注入相关
 | 日期 | 说明 |
 | --- | --- |
 | 2026-07-24 | 建立本总览；当前阶段标为 Phase 2 AI 进行中 |
+| 2026-07-24 | 落地管理端消息通知（站内 + 评论邮件偏好） |
