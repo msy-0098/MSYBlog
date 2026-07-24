@@ -126,6 +126,12 @@ func Load(path string) (Config, error) {
 }
 
 func finalize(cfg Config) (Config, error) {
+	provider := strings.ToLower(strings.TrimSpace(cfg.AI.Provider))
+	if provider != "deepseek" && provider != "openai-compatible" {
+		return Config{}, fmt.Errorf("BLOG_AI_PROVIDER must be deepseek or openai-compatible")
+	}
+	cfg.AI.Provider = provider
+
 	if os.Getenv("GIN_MODE") == "release" {
 		defaults := Default()
 		if cfg.Auth.JWTSecret == defaults.Auth.JWTSecret || isPlaceholder(cfg.Auth.JWTSecret) {

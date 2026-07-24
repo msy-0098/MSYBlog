@@ -54,6 +54,26 @@ func TestDefaultDatabaseDriverIsPostgres(t *testing.T) {
 	}
 }
 
+func TestDefaultAIProviderIsDeepSeek(t *testing.T) {
+	cfg := config.Default()
+
+	if cfg.AI.Provider != "deepseek" {
+		t.Fatalf("default AI provider = %q, want deepseek", cfg.AI.Provider)
+	}
+}
+
+func TestLoadRejectsUnknownAIProvider(t *testing.T) {
+	t.Setenv("BLOG_AI_PROVIDER", "unsupported-provider")
+
+	_, err := config.Load(filepath.Join(t.TempDir(), "missing-config.yaml"))
+	if err == nil {
+		t.Fatal("expected unknown AI provider to be rejected")
+	}
+	if !strings.Contains(err.Error(), "BLOG_AI_PROVIDER") {
+		t.Fatalf("expected safe provider configuration error, got %q", err.Error())
+	}
+}
+
 func TestLoadRejectsDefaultJWTSecretInReleaseMode(t *testing.T) {
 	t.Setenv("GIN_MODE", "release")
 

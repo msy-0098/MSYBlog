@@ -1,24 +1,19 @@
 package ai
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type Config struct {
-	APIKey     string
-	Model      string
-	BaseURL    string
-	HTTPClient *http.Client
+	Provider        string
+	APIKey          string
+	Model           string
+	BaseURL         string
+	HTTPClient      *http.Client
+	DisableThinking bool
 }
 
 type Message struct {
@@ -26,6 +21,7 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// ChatClient is the legacy application-facing contract. New integrations should use Provider.
 type ChatClient interface {
 	Configured() bool
 	Chat(context.Context, []Message) (string, error)
@@ -33,31 +29,43 @@ type ChatClient interface {
 }
 
 type Client struct {
-	apiKey     string
-	model      string
-	baseURL    string
-	httpClient *http.Client
+	provider Provider
 }
 
 var _ ChatClient = (*Client)(nil)
-
-const streamChatTimeout = 5 * time.Minute
 
 type thinkingConfig struct {
 	Type string `json:"type"`
 }
 
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+// chatRequest and streamChatChunk model the shared OpenAI-compatible protocol.
 type chatRequest struct {
-	Model    string          `json:"model"`
-	Messages []Message       `json:"messages"`
-	Stream   bool            `json:"stream"`
-	Thinking *thinkingConfig `json:"thinking,omitempty"`
+	Model         string          `json:"model"`
+	Messages      []Message       `json:"messages"`
+	Stream        bool            `json:"stream"`
+	Thinking      *thinkingConfig `json:"thinking,omitempty"`
+	StreamOptions *streamOptions  `json:"stream_options,omitempty"`
+}
+
+type completionUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+func (u completionUsage) toUsage() Usage {
+	return Usage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens, TotalTokens: u.TotalTokens}
 }
 
 type chatResponse struct {
 	Choices []struct {
 		Message Message `json:"message"`
 	} `json:"choices"`
+	Usage completionUsage `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -69,168 +77,54 @@ type streamChatChunk struct {
 			Content string `json:"content"`
 		} `json:"delta"`
 	} `json:"choices"`
+	Usage completionUsage `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
 
+// NewClient retains the historical DeepSeek-specific construction behavior.
 func NewClient(cfg Config) *Client {
-	httpClient := cfg.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 45 * time.Second}
+	cfg.Provider = "deepseek"
+	provider, err := NewProvider(cfg)
+	if err != nil {
+		return &Client{}
 	}
-	model := strings.TrimSpace(cfg.Model)
-	if model == "" {
-		model = "deepseek-chat"
-	}
-	return &Client{
-		apiKey:     strings.TrimSpace(cfg.APIKey),
-		model:      model,
-		baseURL:    strings.TrimRight(NormalizeBaseURL(cfg.BaseURL), "/"),
-		httpClient: httpClient,
-	}
+	return &Client{provider: provider}
 }
 
 func (c *Client) Configured() bool {
-	return c != nil && c.apiKey != "" && c.baseURL != ""
+	if c == nil || c.provider == nil {
+		return false
+	}
+	if configured, ok := c.provider.(interface{ Configured() bool }); ok {
+		return configured.Configured()
+	}
+	return true
 }
 
 func (c *Client) Chat(ctx context.Context, messages []Message) (string, error) {
-	if !c.Configured() {
-		return "", errors.New("deepseek is not configured")
+	if c == nil || c.provider == nil {
+		return "", providerError(ProviderErrorConfig, nil)
 	}
-	if len(messages) == 0 {
-		return "", errors.New("at least one message is required")
-	}
-
-	payload, err := json.Marshal(chatRequest{Model: c.model, Messages: messages, Stream: false})
+	result, err := c.provider.Chat(ctx, ChatRequest{Messages: messages})
 	if err != nil {
 		return "", err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return "", err
-	}
-	request.Header.Set("Authorization", "Bearer "+c.apiKey)
-	request.Header.Set("Content-Type", "application/json")
-
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return "", err
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
-	if err != nil {
-		return "", err
-	}
-	var decoded chatResponse
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return "", fmt.Errorf("decode deepseek response: %w", err)
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		message := response.Status
-		if decoded.Error != nil && decoded.Error.Message != "" {
-			message = decoded.Error.Message
-		}
-		return "", fmt.Errorf("deepseek request failed: %s", message)
-	}
-	if len(decoded.Choices) == 0 || strings.TrimSpace(decoded.Choices[0].Message.Content) == "" {
-		return "", errors.New("deepseek returned an empty answer")
-	}
-	return strings.TrimSpace(decoded.Choices[0].Message.Content), nil
-}
-
-func streamContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, streamChatTimeout)
+	return result.Content, nil
 }
 
 func (c *Client) StreamChat(ctx context.Context, messages []Message, callback func(string) error) error {
-	if !c.Configured() {
-		return errors.New("deepseek is not configured")
-	}
-	if len(messages) == 0 {
-		return errors.New("at least one message is required")
+	if c == nil || c.provider == nil {
+		return providerError(ProviderErrorConfig, nil)
 	}
 	if callback == nil {
-		return errors.New("stream callback is required")
+		return providerError(ProviderErrorConfig, nil)
 	}
-
-	streamCtx, cancel := streamContext(ctx)
-	defer cancel()
-
-	payload, err := json.Marshal(chatRequest{Model: c.model, Messages: messages, Stream: true, Thinking: &thinkingConfig{Type: "disabled"}})
-	if err != nil {
-		return err
-	}
-	request, err := http.NewRequestWithContext(streamCtx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Authorization", "Bearer "+c.apiKey)
-	request.Header.Set("Content-Type", "application/json")
-
-	streamHTTPClient := *c.httpClient
-	streamHTTPClient.Timeout = 0
-	response, err := streamHTTPClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return streamRequestError(response)
-	}
-
-	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 1024), 2<<20)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || !strings.HasPrefix(line, "data:") {
-			continue
-		}
-
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" {
-			continue
-		}
-		if data == "[DONE]" {
-			return nil
-		}
-
-		var chunk streamChatChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			return fmt.Errorf("decode deepseek stream chunk: %w", err)
-		}
-		if chunk.Error != nil && chunk.Error.Message != "" {
-			return fmt.Errorf("deepseek stream failed: %s", chunk.Error.Message)
-		}
-		for _, choice := range chunk.Choices {
-			if choice.Delta.Content == "" {
-				continue
-			}
-			if err := callback(choice.Delta.Content); err != nil {
-				return err
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	return fmt.Errorf("deepseek stream ended before [DONE]: %w", io.ErrUnexpectedEOF)
-}
-
-func streamRequestError(response *http.Response) error {
-	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
-	if err != nil {
-		return err
-	}
-	message := response.Status
-	var decoded chatResponse
-	if json.Unmarshal(body, &decoded) == nil && decoded.Error != nil && decoded.Error.Message != "" {
-		message = decoded.Error.Message
-	}
-	return fmt.Errorf("deepseek request failed: %s", message)
+	_, err := c.provider.Stream(ctx, ChatRequest{Messages: messages}, func(chunk StreamChunk) error {
+		return callback(chunk.Content)
+	})
+	return err
 }
 
 func NormalizeBaseURL(raw string) string {

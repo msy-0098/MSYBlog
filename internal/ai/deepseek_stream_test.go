@@ -88,8 +88,9 @@ func TestClientStreamChatReturnsNon2xxError(t *testing.T) {
 		t.Fatal("callback must not be called for a non-2xx response")
 		return nil
 	})
-	if err == nil || !strings.Contains(err.Error(), "rate limited") {
-		t.Fatalf("expected rate-limit error, got %v", err)
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != ProviderErrorRateLimit {
+		t.Fatalf("expected rate-limit provider error, got %v", err)
 	}
 }
 
@@ -105,8 +106,9 @@ func TestClientStreamChatReturnsMalformedChunkError(t *testing.T) {
 		t.Fatal("callback must not be called for a malformed chunk")
 		return nil
 	})
-	if err == nil || !strings.Contains(err.Error(), "decode deepseek stream chunk") {
-		t.Fatalf("expected malformed-chunk error, got %v", err)
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != ProviderErrorUnavailable {
+		t.Fatalf("expected unavailable provider error, got %v", err)
 	}
 }
 
@@ -124,6 +126,15 @@ func TestClientStreamChatReturnsCallbackError(t *testing.T) {
 	})
 	if !errors.Is(err, callbackErr) {
 		t.Fatalf("expected callback error, got %v", err)
+	}
+}
+
+func TestClientStreamChatRejectsNilCallback(t *testing.T) {
+	client := NewClient(Config{APIKey: "test-key", BaseURL: "https://api.example.test"})
+	err := client.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil)
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != ProviderErrorConfig {
+		t.Fatalf("expected config error for nil callback, got %v", err)
 	}
 }
 
@@ -253,8 +264,9 @@ func TestClientStreamChatReturnsScannerErrorForOversizedDataLine(t *testing.T) {
 		t.Fatal("callback must not be called for an oversized data line")
 		return nil
 	})
-	if err == nil || !strings.Contains(err.Error(), "token too long") {
-		t.Fatalf("expected scanner token-too-long error, got %v", err)
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != ProviderErrorUnavailable {
+		t.Fatalf("expected unavailable provider error, got %v", err)
 	}
 }
 

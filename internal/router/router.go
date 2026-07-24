@@ -31,7 +31,11 @@ func New(deps Dependencies) *gin.Engine {
 
 	aiClient := deps.AIClient
 	if aiClient == nil {
-		aiClient = ai.NewClient(ai.Config{APIKey: deps.Config.AI.APIKey, Model: deps.Config.AI.Model, BaseURL: deps.Config.AI.BaseURL})
+		var err error
+		aiClient, err = ai.NewConfiguredClient(ai.Config{Provider: deps.Config.AI.Provider, APIKey: deps.Config.AI.APIKey, Model: deps.Config.AI.Model, BaseURL: deps.Config.AI.BaseURL})
+		if err != nil {
+			panic("invalid AI provider configuration")
+		}
 	}
 	siteHandler := handler.NewSiteHandler(deps.Database, deps.Config)
 	blogHandler := handler.NewBlogHandler(deps.Database)
