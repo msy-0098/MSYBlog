@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/mail"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -353,11 +354,15 @@ func newEmailCodeTestHandler(t *testing.T, send func(string, string, string) err
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "visitor-auth.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get test database handle: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(&model.User{}, &model.EmailVerificationCode{}); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}
