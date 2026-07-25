@@ -15,8 +15,11 @@ type User struct {
 	Role         string `gorm:"size:20;index;not null;default:'admin'"`
 	PasswordHash string `gorm:"size:255;not null"`
 	TokenVersion int    `gorm:"not null;default:0"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// TotpSecret is base32; empty when 2FA never configured.
+	TotpSecret  string `gorm:"size:64"`
+	TotpEnabled bool   `gorm:"not null;default:false"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type EmailVerificationCode struct {

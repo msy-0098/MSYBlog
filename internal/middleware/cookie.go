@@ -10,6 +10,7 @@ import (
 const (
 	AdminTokenCookie   = "admin_token"
 	VisitorTokenCookie = "visitor_token"
+	Pending2FACookie   = "admin_2fa_pending"
 	// Match JWT expiry (24h).
 	AuthCookieMaxAge = 24 * 60 * 60
 )

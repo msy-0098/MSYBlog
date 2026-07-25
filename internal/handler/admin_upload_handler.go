@@ -1,6 +1,11 @@
 package handler
 
 import (
+	"bytes"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	_ "golang.org/x/image/webp"
 
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
@@ -47,26 +53,26 @@ func (h AdminContentHandler) UploadImage(c *gin.Context) {
 		return
 	}
 
-	detectedMimeType, detectedExt, ok := detectSafeImage(content)
-	if !ok {
+	if _, _, ok := detectSafeImage(content); !ok {
 		response.Error(c, http.StatusBadRequest, 400, "only image uploads are allowed")
 		return
 	}
-	mimeType = detectedMimeType
+
+	// Re-encode to strip EXIF/metadata and reject non-decodable payloads.
+	safeBytes, mimeType, ext, err := reencodeSafeImage(content)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, 400, "图片无法解析或重编码失败")
+		return
+	}
 
 	if err := os.MkdirAll("uploads", 0o755); err != nil {
 		internalError(c)
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext == "" {
-		ext = ".bin"
-	}
-	ext = detectedExt
 	filename := strconv.FormatInt(time.Now().UnixNano(), 10) + ext
 	diskPath := filepath.Join("uploads", filename)
-	if err := os.WriteFile(diskPath, content, 0o644); err != nil {
+	if err := os.WriteFile(diskPath, safeBytes, 0o644); err != nil {
 		internalError(c)
 		return
 	}
@@ -75,7 +81,7 @@ func (h AdminContentHandler) UploadImage(c *gin.Context) {
 		Filename: header.Filename,
 		Path:     "/uploads/" + filename,
 		MimeType: mimeType,
-		Size:     int64(len(content)),
+		Size:     int64(len(safeBytes)),
 	}
 	if err := h.db.Create(&upload).Error; err != nil {
 		internalError(c)
@@ -93,7 +99,6 @@ func (h AdminContentHandler) UploadImage(c *gin.Context) {
 
 func detectSafeImage(content []byte) (string, string, bool) {
 	mimeType := http.DetectContentType(content)
-
 	switch mimeType {
 	case "image/jpeg":
 		return mimeType, ".jpg", true
@@ -105,5 +110,28 @@ func detectSafeImage(content []byte) (string, string, bool) {
 		return mimeType, ".webp", true
 	default:
 		return "", "", false
+	}
+}
+
+// reencodeSafeImage decodes then re-encodes the image so EXIF and exotic
+// containers never reach disk. JPEG stays JPEG; everything else becomes PNG.
+func reencodeSafeImage(content []byte) ([]byte, string, string, error) {
+	img, format, err := image.Decode(bytes.NewReader(content))
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	var buf bytes.Buffer
+	switch strings.ToLower(format) {
+	case "jpeg", "jpg":
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 88}); err != nil {
+			return nil, "", "", err
+		}
+		return buf.Bytes(), "image/jpeg", ".jpg", nil
+	default:
+		if err := png.Encode(&buf, img); err != nil {
+			return nil, "", "", err
+		}
+		return buf.Bytes(), "image/png", ".png", nil
 	}
 }
