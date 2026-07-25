@@ -843,8 +843,8 @@ func internalError(c *gin.Context) {
 
 func conflictOrInternal(c *gin.Context, err error) {
 	message := strings.ToLower(err.Error())
-	if strings.Contains(message, "unique") || strings.Contains(message, "constraint") {
-		response.Error(c, http.StatusConflict, 409, "数据冲突")
+	if strings.Contains(message, "unique") || strings.Contains(message, "constraint") || strings.Contains(message, "duplicate") {
+		response.Error(c, http.StatusConflict, 409, "该邮箱已注册，请直接登录")
 		return
 	}
 

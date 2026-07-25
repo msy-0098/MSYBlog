@@ -50,13 +50,13 @@ func (t AccessTracker) Middleware() gin.HandlerFunc {
 			_ = t.ban(ip, "命中恶意扫描路径", 24*time.Hour)
 			return
 		}
-		if status >= http.StatusBadRequest {
+		if security.CountsTowardAutoBan(status) {
 			var failures int64
 			t.db.Model(&model.AccessLog{}).
-				Where("ip = ? AND status >= ? AND created_at >= ?", ip, http.StatusBadRequest, t.now().Add(-5*time.Minute)).
+				Where("ip = ? AND status >= ? AND created_at >= ?", ip, http.StatusInternalServerError, t.now().Add(-5*time.Minute)).
 				Count(&failures)
 			if security.ShouldAutoBan(failures, status) {
-				_ = t.ban(ip, "短时间内连续请求失败", 1*time.Hour)
+				_ = t.ban(ip, "短时间内连续服务端错误", 1*time.Hour)
 			}
 		}
 	}

@@ -225,6 +225,19 @@ func (h VisitorAuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	var existing model.User
+	if err := h.db.Where("email = ? OR username = ?", email, email).First(&existing).Error; err == nil {
+		if existing.Role == model.UserRoleAdmin {
+			response.Error(c, http.StatusConflict, 409, "该邮箱已是管理员账号，请直接后台登录")
+			return
+		}
+		response.Error(c, http.StatusConflict, 409, "该邮箱已注册，请直接登录")
+		return
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		internalError(c)
+		return
+	}
+
 	passwordHash, err := auth.HashPassword(password)
 	if err != nil {
 		internalError(c)
