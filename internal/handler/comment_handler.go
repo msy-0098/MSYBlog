@@ -56,7 +56,7 @@ func (h CommentHandler) ListPostComments(c *gin.Context) {
 	var comments []model.Comment
 	if err := h.db.Preload("User").
 		Where("post_id = ? AND status = ?", post.ID, model.CommentStatusApproved).
-		Order("created_at desc").
+		Order("CASE WHEN status = 'pending' THEN 0 ELSE 1 END, created_at DESC").
 		Find(&comments).Error; err != nil {
 		internalError(c)
 		return
@@ -97,7 +97,7 @@ func (h CommentHandler) CreatePostComment(c *gin.Context) {
 		PostID:  post.ID,
 		UserID:  claims.UserID,
 		Content: content,
-		Status:  model.CommentStatusApproved,
+		Status:  model.CommentStatusPending,
 	}
 	if err := h.db.Create(&comment).Error; err != nil {
 		internalError(c)
@@ -179,7 +179,7 @@ func (h CommentHandler) UpdateAdminComment(c *gin.Context) {
 	}
 
 	status := strings.TrimSpace(req.Status)
-	if status != model.CommentStatusApproved && status != model.CommentStatusHidden {
+	if status != model.CommentStatusPending && status != model.CommentStatusApproved && status != model.CommentStatusHidden {
 		badRequest(c)
 		return
 	}

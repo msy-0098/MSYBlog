@@ -34,8 +34,17 @@ func TestAdminAuthLoginReturnsTokenForValidCredentials(t *testing.T) {
 	if body.Code != 0 {
 		t.Fatalf("expected success code, got %d", body.Code)
 	}
-	if body.Data.Token == "" {
-		t.Fatal("expected login token")
+	if body.Data.Token != "" {
+		t.Fatal("login response must not include JWT body")
+	}
+	foundCookie := false
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == "admin_token" && cookie.Value != "" {
+			foundCookie = true
+		}
+	}
+	if !foundCookie {
+		t.Fatal("expected admin_token cookie after login")
 	}
 	if body.Data.User.Username != "masenyu812@gmail.com" {
 		t.Fatalf("unexpected username %q", body.Data.User.Username)
@@ -211,18 +220,13 @@ func loginAndGetToken(t *testing.T, handler http.Handler) string {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("login failed with status %d and body %s", recorder.Code, recorder.Body.String())
 	}
-
-	var body struct {
-		Data struct {
-			Token string `json:"token"`
-		} `json:"data"`
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == "admin_token" && cookie.Value != "" {
+			return cookie.Value
+		}
 	}
-	decodeJSON(t, recorder, &body)
-	if body.Data.Token == "" {
-		t.Fatal("expected login token")
-	}
-
-	return body.Data.Token
+	t.Fatal("expected admin_token cookie after login")
+	return ""
 }
 
 func newAdminAuthTestEngine(t *testing.T) http.Handler {

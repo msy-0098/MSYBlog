@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -36,9 +37,6 @@ func TestVisitorRegistrationLoginAndCommentFlow(t *testing.T) {
 		} `json:"data"`
 	}
 	decodeJSON(t, register, &registerBody)
-	if registerBody.Data.Token == "" {
-		t.Fatal("expected visitor token after registration")
-	}
 	if registerBody.Data.User.Email != "reader@example.com" || registerBody.Data.User.Nickname != "认真读者" || registerBody.Data.User.Role != "visitor" {
 		t.Fatalf("unexpected registered user payload: %#v", registerBody.Data.User)
 	}
@@ -57,13 +55,10 @@ func TestVisitorRegistrationLoginAndCommentFlow(t *testing.T) {
 		} `json:"data"`
 	}
 	decodeJSON(t, login, &loginBody)
-	if loginBody.Data.Token == "" {
-		t.Fatal("expected visitor login token")
-	}
 
 	comment := performJSONRequest(engine, http.MethodPost, "/api/posts/go-gin-postgresql-blog/comments", map[string]string{
 		"content": "这篇文章的部署思路很清楚呀",
-	}, loginBody.Data.Token)
+	}, cookieValue(login, "visitor_token"))
 	if comment.Code != http.StatusOK {
 		t.Fatalf("expected comment create status 200, got %d with body %s", comment.Code, comment.Body.String())
 	}
@@ -164,7 +159,7 @@ func TestAdminDashboardAndCommentManagement(t *testing.T) {
 
 	createComment := performJSONRequest(engine, http.MethodPost, "/api/posts/go-gin-postgresql-blog/comments", map[string]string{
 		"content": "后台统计需要看到这条评论",
-	}, registerBody.Data.Token)
+	}, cookieValue(register, "visitor_token"))
 	if createComment.Code != http.StatusOK {
 		t.Fatalf("expected create comment status 200, got %d with body %s", createComment.Code, createComment.Body.String())
 	}
@@ -232,4 +227,14 @@ func TestAdminDashboardAndCommentManagement(t *testing.T) {
 	if publicBody.Data.Total != 0 {
 		t.Fatalf("expected hidden comment to disappear publicly, got total %d", publicBody.Data.Total)
 	}
+}
+
+
+func cookieValue(recorder *httptest.ResponseRecorder, name string) string {
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == name {
+			return cookie.Value
+		}
+	}
+	return ""
 }

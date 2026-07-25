@@ -21,6 +21,7 @@ import (
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
 	"masenyu.top/blog/backend/internal/service"
+	"masenyu.top/blog/backend/internal/security"
 )
 
 type VisitorAuthHandler struct {
@@ -31,6 +32,7 @@ type VisitorAuthHandler struct {
 	codeLimiter   *service.VerificationCodeLimiter
 	mailSender    blogmail.Sender
 	notifications *service.NotificationService
+	lock          *security.AccountLock
 }
 
 type EmailCodeRequest struct {
@@ -64,8 +66,7 @@ type VisitorUserDTO struct {
 }
 
 type VisitorAuthResponse struct {
-	Token string         `json:"token"`
-	User  VisitorUserDTO `json:"user"`
+	User VisitorUserDTO `json:"user"`
 }
 
 func NewVisitorAuthHandler(db *gorm.DB, cfg config.Config, codeLimiter *service.VerificationCodeLimiter, mailSender blogmail.Sender) VisitorAuthHandler {
@@ -79,6 +80,7 @@ func NewVisitorAuthHandler(db *gorm.DB, cfg config.Config, codeLimiter *service.
 		now:         time.Now,
 		codeLimiter: codeLimiter,
 		mailSender:  mailSender,
+		lock:        security.NewAccountLock(5, 15*time.Minute, 15*time.Minute),
 	}
 }
 
@@ -278,7 +280,7 @@ func (h VisitorAuthHandler) Register(c *gin.Context) {
 	}
 
 	middleware.SetAuthCookie(c, middleware.VisitorTokenCookie, token)
-	response.Success(c, VisitorAuthResponse{Token: token, User: visitorUserDTO(user)})
+	response.Success(c, VisitorAuthResponse{User: visitorUserDTO(user)})
 }
 
 func (h VisitorAuthHandler) Login(c *gin.Context) {
@@ -289,13 +291,32 @@ func (h VisitorAuthHandler) Login(c *gin.Context) {
 	}
 
 	email := normalizeEmail(req.Email)
+	if remaining := h.lock.Check(email); remaining > 0 {
+		seconds := int(math.Ceil(remaining.Seconds()))
+		if seconds < 1 {
+			seconds = 1
+		}
+		response.ErrorWithData(c, http.StatusTooManyRequests, "账号暂时锁定，请稍后再试", gin.H{"retryAfter": seconds})
+		return
+	}
+
 	var user model.User
 	if err := h.db.Where("email = ? AND role = ?", email, model.UserRoleVisitor).First(&user).Error; err != nil {
+		if remaining := h.lock.Fail(email); remaining > 0 {
+			seconds := int(math.Ceil(remaining.Seconds()))
+			response.ErrorWithData(c, http.StatusTooManyRequests, "账号暂时锁定，请稍后再试", gin.H{"retryAfter": seconds})
+			return
+		}
 		response.Error(c, http.StatusUnauthorized, 401, "邮箱或密码错误")
 		return
 	}
 
 	if !auth.CheckPassword(user.PasswordHash, req.Password) {
+		if remaining := h.lock.Fail(email); remaining > 0 {
+			seconds := int(math.Ceil(remaining.Seconds()))
+			response.ErrorWithData(c, http.StatusTooManyRequests, "账号暂时锁定，请稍后再试", gin.H{"retryAfter": seconds})
+			return
+		}
 		response.Error(c, http.StatusUnauthorized, 401, "邮箱或密码错误")
 		return
 	}
@@ -306,8 +327,9 @@ func (h VisitorAuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	h.lock.Success(email)
 	middleware.SetAuthCookie(c, middleware.VisitorTokenCookie, token)
-	response.Success(c, VisitorAuthResponse{Token: token, User: visitorUserDTO(user)})
+	response.Success(c, VisitorAuthResponse{User: visitorUserDTO(user)})
 }
 
 func (h VisitorAuthHandler) Logout(c *gin.Context) {

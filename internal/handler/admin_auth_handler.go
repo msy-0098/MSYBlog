@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -12,11 +13,13 @@ import (
 	"masenyu.top/blog/backend/internal/middleware"
 	"masenyu.top/blog/backend/internal/model"
 	"masenyu.top/blog/backend/internal/response"
+	"masenyu.top/blog/backend/internal/security"
 )
 
 type AdminAuthHandler struct {
 	db        *gorm.DB
 	jwtSecret string
+	lock      *security.AccountLock
 }
 
 type LoginRequest struct {
@@ -34,12 +37,15 @@ type AdminUserDTO struct {
 }
 
 type LoginResponse struct {
-	Token string       `json:"token"`
-	User  AdminUserDTO `json:"user"`
+	User AdminUserDTO `json:"user"`
 }
 
 func NewAdminAuthHandler(db *gorm.DB, jwtSecret string) AdminAuthHandler {
-	return AdminAuthHandler{db: db, jwtSecret: jwtSecret}
+	return AdminAuthHandler{
+		db:        db,
+		jwtSecret: jwtSecret,
+		lock:      security.NewAccountLock(5, 15*time.Minute, 15*time.Minute),
+	}
 }
 
 func (h AdminAuthHandler) Login(c *gin.Context) {
@@ -50,29 +56,46 @@ func (h AdminAuthHandler) Login(c *gin.Context) {
 	}
 
 	username := strings.TrimSpace(req.Username)
+	if remaining := h.lock.Check(username); remaining > 0 {
+		seconds := int(math.Ceil(remaining.Seconds()))
+		if seconds < 1 {
+			seconds = 1
+		}
+		response.ErrorWithData(c, http.StatusTooManyRequests, "账号暂时锁定，请稍后再试", gin.H{"retryAfter": seconds})
+		return
+	}
+
 	var user model.User
 	if err := h.db.Where("username = ? AND role = ?", username, model.UserRoleAdmin).First(&user).Error; err != nil {
+		if remaining := h.lock.Fail(username); remaining > 0 {
+			seconds := int(math.Ceil(remaining.Seconds()))
+			response.ErrorWithData(c, http.StatusTooManyRequests, "账号暂时锁定，请稍后再试", gin.H{"retryAfter": seconds})
+			return
+		}
 		response.Error(c, http.StatusUnauthorized, 401, "账号或密码错误")
 		return
 	}
 
 	if !auth.CheckPassword(user.PasswordHash, req.Password) {
+		if remaining := h.lock.Fail(username); remaining > 0 {
+			seconds := int(math.Ceil(remaining.Seconds()))
+			response.ErrorWithData(c, http.StatusTooManyRequests, "账号暂时锁定，请稍后再试", gin.H{"retryAfter": seconds})
+			return
+		}
 		response.Error(c, http.StatusUnauthorized, 401, "账号或密码错误")
 		return
 	}
 
 	token, err := auth.GenerateTokenWithRole(h.jwtSecret, user.ID, user.Username, user.Role, user.TokenVersion, time.Now())
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		response.Error(c, http.StatusInternalServerError, 500, "服务器错误")
 		return
 	}
 
+	h.lock.Success(username)
 	middleware.SetAuthCookie(c, middleware.AdminTokenCookie, token)
-
-	response.Success(c, LoginResponse{
-		Token: token,
-		User:  adminUserDTO(user),
-	})
+	middleware.IssueCSRFToken(c)
+	response.Success(c, LoginResponse{User: adminUserDTO(user)})
 }
 
 func (h AdminAuthHandler) Logout(c *gin.Context) {
@@ -80,6 +103,7 @@ func (h AdminAuthHandler) Logout(c *gin.Context) {
 		_ = h.db.Model(&model.User{}).Where("id = ?", claims.UserID).UpdateColumn("token_version", gorm.Expr("token_version + 1")).Error
 	}
 	middleware.ClearAuthCookie(c, middleware.AdminTokenCookie)
+	middleware.ClearCSRFToken(c)
 	response.Success(c, gin.H{"loggedOut": true})
 }
 
