@@ -62,18 +62,36 @@ func (t AccessTracker) Middleware() gin.HandlerFunc {
 	}
 }
 
+// ClientIP returns the real client address when the request comes from a
+// trusted reverse proxy (loopback). Untrusted direct callers cannot spoof
+// X-Forwarded-For / X-Real-IP to bypass bans or rate limits.
 func ClientIP(c *gin.Context) string {
-	if value := strings.TrimSpace(c.GetHeader("X-Real-IP")); value != "" {
-		return value
+	remote := remoteIP(c)
+	if isTrustedProxy(remote) {
+		if value := strings.TrimSpace(c.GetHeader("X-Real-IP")); value != "" {
+			return value
+		}
+		if value := strings.TrimSpace(c.GetHeader("X-Forwarded-For")); value != "" {
+			return strings.TrimSpace(strings.Split(value, ",")[0])
+		}
 	}
-	if value := strings.TrimSpace(c.GetHeader("X-Forwarded-For")); value != "" {
-		return strings.TrimSpace(strings.Split(value, ",")[0])
-	}
+	return remote
+}
+
+func remoteIP(c *gin.Context) string {
 	value, _, err := net.SplitHostPort(strings.TrimSpace(c.Request.RemoteAddr))
 	if err == nil {
 		return value
 	}
 	return strings.TrimSpace(c.Request.RemoteAddr)
+}
+
+func isTrustedProxy(ip string) bool {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return false
+	}
+	return parsed.IsLoopback()
 }
 
 func (t AccessTracker) isBanned(ip string) bool {

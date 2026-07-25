@@ -61,7 +61,7 @@ func (h AdminAuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := auth.GenerateTokenWithRole(h.jwtSecret, user.ID, user.Username, user.Role, time.Now())
+	token, err := auth.GenerateTokenWithRole(h.jwtSecret, user.ID, user.Username, user.Role, user.TokenVersion, time.Now())
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
 		return
@@ -76,6 +76,9 @@ func (h AdminAuthHandler) Login(c *gin.Context) {
 }
 
 func (h AdminAuthHandler) Logout(c *gin.Context) {
+	if claims, ok := parseOptionalClaims(c, h.jwtSecret, middleware.AdminTokenCookie); ok {
+		_ = h.db.Model(&model.User{}).Where("id = ?", claims.UserID).UpdateColumn("token_version", gorm.Expr("token_version + 1")).Error
+	}
 	middleware.ClearAuthCookie(c, middleware.AdminTokenCookie)
 	response.Success(c, gin.H{"loggedOut": true})
 }
@@ -145,10 +148,34 @@ func (h AdminAuthHandler) ChangePassword(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
 		return
 	}
+	if err := h.db.Model(&user).UpdateColumn("token_version", gorm.Expr("token_version + 1")).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, 500, "服务端错误")
+		return
+	}
+	middleware.ClearAuthCookie(c, middleware.AdminTokenCookie)
 
 	response.Success(c, gin.H{"updated": true})
 }
 
 func adminUserDTO(user model.User) AdminUserDTO {
 	return AdminUserDTO{ID: user.ID, Username: user.Username, Email: user.Email, Nickname: user.Nickname, Role: user.Role, CreatedAt: formatTime(user.CreatedAt)}
+}
+
+func parseOptionalClaims(c *gin.Context, secret string, cookieName string) (*auth.Claims, bool) {
+	header := c.GetHeader("Authorization")
+	if strings.HasPrefix(header, "Bearer ") {
+		claims, err := auth.ParseToken(secret, strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
+		if err == nil {
+			return claims, true
+		}
+	}
+	raw, err := c.Cookie(cookieName)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return nil, false
+	}
+	claims, err := auth.ParseToken(secret, strings.TrimSpace(raw))
+	if err != nil {
+		return nil, false
+	}
+	return claims, true
 }

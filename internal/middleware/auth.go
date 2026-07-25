@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"masenyu.top/blog/backend/internal/auth"
 	"masenyu.top/blog/backend/internal/model"
@@ -13,9 +14,9 @@ import (
 
 const CurrentUserKey = "currentUser"
 
-func RequireAuth(secret string) gin.HandlerFunc {
+func RequireAuth(secret string, db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claims, ok := parseAuthClaims(c, secret, VisitorTokenCookie, AdminTokenCookie)
+		claims, ok := parseAuthClaims(c, secret, db, VisitorTokenCookie, AdminTokenCookie)
 		if !ok {
 			response.Error(c, http.StatusUnauthorized, 401, "未登录或 token 失效")
 			c.Abort()
@@ -27,9 +28,9 @@ func RequireAuth(secret string) gin.HandlerFunc {
 	}
 }
 
-func RequireAdmin(secret string) gin.HandlerFunc {
+func RequireAdmin(secret string, db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claims, ok := parseAuthClaims(c, secret, AdminTokenCookie)
+		claims, ok := parseAuthClaims(c, secret, db, AdminTokenCookie)
 		if !ok {
 			response.Error(c, http.StatusUnauthorized, 401, "未登录或 token 失效")
 			c.Abort()
@@ -48,11 +49,12 @@ func RequireAdmin(secret string) gin.HandlerFunc {
 }
 
 // parseAuthClaims accepts Authorization Bearer token first, then httpOnly cookies.
-func parseAuthClaims(c *gin.Context, secret string, cookieNames ...string) (*auth.Claims, bool) {
+// When db is provided, TokenVersion must match the user row so logout/password change revoke sessions.
+func parseAuthClaims(c *gin.Context, secret string, db *gorm.DB, cookieNames ...string) (*auth.Claims, bool) {
 	header := c.GetHeader("Authorization")
 	if strings.HasPrefix(header, "Bearer ") {
 		claims, err := auth.ParseToken(secret, strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
-		if err == nil {
+		if err == nil && tokenVersionOK(db, claims) {
 			return claims, true
 		}
 	}
@@ -63,10 +65,22 @@ func parseAuthClaims(c *gin.Context, secret string, cookieNames ...string) (*aut
 			continue
 		}
 		claims, err := auth.ParseToken(secret, strings.TrimSpace(raw))
-		if err == nil {
+		if err == nil && tokenVersionOK(db, claims) {
 			return claims, true
 		}
 	}
 
 	return nil, false
+}
+
+func tokenVersionOK(db *gorm.DB, claims *auth.Claims) bool {
+	if db == nil || claims == nil {
+		return claims != nil
+	}
+	var version int
+	err := db.Model(&model.User{}).Select("token_version").Where("id = ?", claims.UserID).Scan(&version).Error
+	if err != nil {
+		return false
+	}
+	return version == claims.TokenVersion
 }

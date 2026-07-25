@@ -14,6 +14,7 @@ type User struct {
 	Nickname     string `gorm:"size:80"`
 	Role         string `gorm:"size:20;index;not null;default:'admin'"`
 	PasswordHash string `gorm:"size:255;not null"`
+	TokenVersion int    `gorm:"not null;default:0"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

@@ -329,7 +329,7 @@ func TestAdminAIConversationEndpointsHideUnknownAndOtherAdminData(t *testing.T) 
 	if err := db.Create(&other).Error; err != nil {
 		t.Fatalf("create other admin: %v", err)
 	}
-	otherToken, err := auth.GenerateTokenWithRole("admin-test-secret", other.ID, other.Username, other.Role, time.Now())
+	otherToken, err := auth.GenerateTokenWithRole("admin-test-secret", other.ID, other.Username, other.Role, 0, time.Now())
 	if err != nil {
 		t.Fatalf("create other token: %v", err)
 	}

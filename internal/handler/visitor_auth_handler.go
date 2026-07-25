@@ -256,7 +256,7 @@ func (h VisitorAuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	token, err := auth.GenerateTokenWithRole(h.jwtSecret, user.ID, user.Email, user.Role, h.now())
+	token, err := auth.GenerateTokenWithRole(h.jwtSecret, user.ID, user.Email, user.Role, user.TokenVersion, h.now())
 	if err != nil {
 		internalError(c)
 		return
@@ -300,7 +300,7 @@ func (h VisitorAuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := auth.GenerateTokenWithRole(h.jwtSecret, user.ID, user.Email, user.Role, h.now())
+	token, err := auth.GenerateTokenWithRole(h.jwtSecret, user.ID, user.Email, user.Role, user.TokenVersion, h.now())
 	if err != nil {
 		internalError(c)
 		return
@@ -311,6 +311,11 @@ func (h VisitorAuthHandler) Login(c *gin.Context) {
 }
 
 func (h VisitorAuthHandler) Logout(c *gin.Context) {
+	if raw, err := c.Cookie(middleware.VisitorTokenCookie); err == nil && strings.TrimSpace(raw) != "" {
+		if claims, err := auth.ParseToken(h.jwtSecret, strings.TrimSpace(raw)); err == nil {
+			_ = h.db.Model(&model.User{}).Where("id = ?", claims.UserID).UpdateColumn("token_version", gorm.Expr("token_version + 1")).Error
+		}
+	}
 	middleware.ClearAuthCookie(c, middleware.VisitorTokenCookie)
 	response.Success(c, gin.H{"loggedOut": true})
 }
@@ -351,6 +356,10 @@ func (h VisitorAuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
+	if err := h.db.Model(&user).UpdateColumn("token_version", gorm.Expr("token_version + 1")).Error; err != nil {
+		internalError(c)
+		return
+	}
 	response.Success(c, gin.H{"updated": true})
 }
 

@@ -28,6 +28,8 @@ func New(deps Dependencies) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.New()
+	// Only trust loopback reverse proxies for X-Forwarded-* / ClientIP.
+	_ = engine.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 	engine.Use(gin.Logger(), gin.Recovery(), middleware.NewAccessTracker(deps.Database).Middleware(), middleware.PublicReadCache())
 	engine.Static("/uploads", "uploads")
 
@@ -99,11 +101,11 @@ func New(deps Dependencies) *gin.Engine {
 	api.POST("/auth/reset-password", limiter.Limit(10, time.Minute), visitorAuthHandler.ResetPassword)
 	api.POST("/auth/logout", visitorAuthHandler.Logout)
 	api.GET("/posts/:slug/comments", commentHandler.ListPostComments)
-	api.POST("/posts/:slug/comments", middleware.RequireAuth(deps.Config.Auth.JWTSecret), commentHandler.CreatePostComment)
+	api.POST("/posts/:slug/comments", middleware.RequireAuth(deps.Config.Auth.JWTSecret, deps.Database), commentHandler.CreatePostComment)
 	api.POST("/posts/:slug/like", limiter.Limit(20, time.Minute), blogHandler.LikePost)
 	api.POST("/admin/login", limiter.Limit(5, time.Minute), adminAuthHandler.Login)
 
-	admin := api.Group("/admin", middleware.RequireAdmin(deps.Config.Auth.JWTSecret))
+	admin := api.Group("/admin", middleware.RequireAdmin(deps.Config.Auth.JWTSecret, deps.Database))
 	admin.GET("/profile", adminAuthHandler.Profile)
 	admin.POST("/logout", adminAuthHandler.Logout)
 	admin.PUT("/password", adminAuthHandler.ChangePassword)
