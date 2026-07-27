@@ -117,6 +117,7 @@ func New(deps Dependencies) *gin.Engine {
 	admin.GET("/analytics", adminInsightHandler.GetAnalytics)
 	admin.GET("/trends", adminDashboardHandler.GetTrends)
 	admin.GET("/users", adminInsightHandler.ListUsers)
+	admin.POST("/ip-locations", limiter.Limit(60, time.Minute), adminInsightHandler.LookupIPLocation)
 	admin.GET("/ip-bans", adminInsightHandler.ListBans)
 	admin.POST("/ip-bans", adminInsightHandler.CreateBan)
 	admin.DELETE("/ip-bans/:id", adminInsightHandler.RemoveBan)

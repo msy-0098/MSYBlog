@@ -25,6 +25,7 @@ type AdminInsightHandler struct {
 	runtime       *service.AIRuntime
 	model         string
 	notifications *service.NotificationService
+	ipLocations   *service.IPLocationResolver
 }
 
 type AdminVisitorDTO struct {
@@ -74,6 +75,10 @@ type BanRequest struct {
 	Duration int    `json:"duration"`
 }
 
+type IPLocationRequest struct {
+	IP string `json:"ip"`
+}
+
 type AIChatRequest struct {
 	Messages []ai.Message `json:"messages"`
 }
@@ -97,11 +102,11 @@ type BeautifyResponse struct {
 }
 
 func NewAdminInsightHandler(db *gorm.DB, aiClient ai.ChatClient, modelName string) AdminInsightHandler {
-	return AdminInsightHandler{db: db, aiClient: aiClient, model: modelName}
+	return AdminInsightHandler{db: db, aiClient: aiClient, model: modelName, ipLocations: service.NewIPLocationResolver(nil)}
 }
 
 func NewAdminInsightHandlerWithRuntime(db *gorm.DB, aiClient ai.ChatClient, runtime *service.AIRuntime, modelName string) AdminInsightHandler {
-	return AdminInsightHandler{db: db, aiClient: aiClient, runtime: runtime, model: modelName}
+	return AdminInsightHandler{db: db, aiClient: aiClient, runtime: runtime, model: modelName, ipLocations: service.NewIPLocationResolver(nil)}
 }
 
 func (h AdminInsightHandler) WithNotifications(notifications *service.NotificationService) AdminInsightHandler {
@@ -126,6 +131,25 @@ func (h AdminInsightHandler) ListUsers(c *gin.Context) {
 		list = append(list, adminVisitorDTO(user))
 	}
 	response.Success(c, PageDTO[AdminVisitorDTO]{List: list, Page: page, PageSize: pageSize, Total: total})
+}
+
+func (h AdminInsightHandler) LookupIPLocation(c *gin.Context) {
+	var req IPLocationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c)
+		return
+	}
+	location, err := h.ipLocations.Lookup(c.Request.Context(), req.IP)
+	switch {
+	case err == nil:
+		response.Success(c, location)
+	case errors.Is(err, service.ErrInvalidIPAddress):
+		response.Error(c, http.StatusBadRequest, 400, "IP 地址格式无效")
+	case errors.Is(err, service.ErrIPLocationQuotaReached):
+		response.Error(c, http.StatusTooManyRequests, 429, "今日查询额度已用完，为保证后台稳定运行，所属地服务将在额度恢复后自动可用。")
+	default:
+		response.Error(c, http.StatusServiceUnavailable, 503, "所属地服务暂时不可用，请稍后重试")
+	}
 }
 
 func (h AdminInsightHandler) GetAnalytics(c *gin.Context) {
