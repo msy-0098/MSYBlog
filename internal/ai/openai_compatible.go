@@ -31,7 +31,7 @@ func NewOpenAICompatibleProvider(cfg Config) (*OpenAICompatibleProvider, error) 
 	}
 	model := strings.TrimSpace(cfg.Model)
 	if model == "" {
-		model = "deepseek-chat"
+		model = "deepseek-v4-flash"
 	}
 	return &OpenAICompatibleProvider{
 		apiKey:          strings.TrimSpace(cfg.APIKey),

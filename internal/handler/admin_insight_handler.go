@@ -114,6 +114,18 @@ func (h AdminInsightHandler) WithNotifications(notifications *service.Notificati
 	return h
 }
 
+// ListUsers 管理端用户列表
+// @Summary 管理端用户列表
+// @Description 分页查询已注册用户/访客账号
+// @Tags 仪表盘与统计分析
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param page query int false "当前页码" default(1)
+// @Param pageSize query int false "每页条数" default(10)
+// @Success 200 {object} response.Envelope{data=PageDTO[AdminVisitorDTO]} "用户列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/users [get]
 func (h AdminInsightHandler) ListUsers(c *gin.Context) {
 	page, pageSize := pagination(c)
 	var total int64
@@ -133,6 +145,19 @@ func (h AdminInsightHandler) ListUsers(c *gin.Context) {
 	response.Success(c, PageDTO[AdminVisitorDTO]{List: list, Page: page, PageSize: pageSize, Total: total})
 }
 
+// LookupIPLocation 查询 IP 地理位置
+// @Summary 查询 IP 地理位置
+// @Description 查询指定 IP 的归属城市/运营商信息（带配额与缓存）
+// @Tags 仪表盘与统计分析
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body IPLocationRequest true "IP 查询请求"
+// @Success 200 {object} response.Envelope{data=object} "IP 地理位置"
+// @Failure 400 {object} response.ErrorResponse "IP 格式无效"
+// @Failure 429 {object} response.ErrorResponse "查询额度超限"
+// @Router /admin/ip-locations [post]
 func (h AdminInsightHandler) LookupIPLocation(c *gin.Context) {
 	var req IPLocationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -152,6 +177,16 @@ func (h AdminInsightHandler) LookupIPLocation(c *gin.Context) {
 	}
 }
 
+// GetAnalytics 获取站点访问统计分析
+// @Summary 获取站点访问统计分析
+// @Description 查询访问日志聚合数据，包括请求量、独立 IP、异常请求与高频 IP/路径
+// @Tags 仪表盘与统计分析
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=AnalyticsDTO} "统计分析数据"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/analytics [get]
 func (h AdminInsightHandler) GetAnalytics(c *gin.Context) {
 	analytics, err := h.readAnalytics()
 	if err != nil {
@@ -167,6 +202,17 @@ type AIAnalysisDTO struct {
 	Signals []string `json:"signals"`
 }
 
+// GenerateInsights 生成 AI 站点运营洞察
+// @Summary 生成 AI 站点运营洞察
+// @Description 结合访问统计与博客现状，调用 AI 生成运营分析建议
+// @Tags AI 助手与智能工具
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=AIAnalysisDTO} "AI 分析结果"
+// @Failure 502 {object} response.ErrorResponse "大模型响应错误"
+// @Failure 503 {object} response.ErrorResponse "AI 未配置"
+// @Router /admin/ai/insights/generate [post]
 func (h AdminInsightHandler) GenerateInsights(c *gin.Context) {
 	if !h.configured() {
 		response.Error(c, http.StatusServiceUnavailable, 503, "DeepSeek 尚未配置，请在服务器环境变量中设置 BLOG_AI_API_KEY")
@@ -204,6 +250,16 @@ func (h AdminInsightHandler) GenerateInsights(c *gin.Context) {
 		fmt.Sprintf("注册访客 %d 位，评论 %d 条", stats.VisitorCount, stats.CommentCount),
 	}})
 }
+// ListBans 获取 IP 封禁黑名单
+// @Summary 获取 IP 封禁黑名单
+// @Description 查询全部被封禁的 IP 地址记录及生效状态
+// @Tags 仪表盘与统计分析
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=ListDTO[IPBanDTO]} "黑名单列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/ip-bans [get]
 func (h AdminInsightHandler) ListBans(c *gin.Context) {
 	var bans []model.IPBan
 	if err := h.db.Order("created_at desc").Find(&bans).Error; err != nil {
@@ -217,6 +273,19 @@ func (h AdminInsightHandler) ListBans(c *gin.Context) {
 	response.Success(c, ListDTO[IPBanDTO]{List: list})
 }
 
+// CreateBan 新增 IP 封禁
+// @Summary 新增 IP 封禁
+// @Description 手动添加或延长指定 IP 的访问封禁时间
+// @Tags 仪表盘与统计分析
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body BanRequest true "封禁请求"
+// @Success 200 {object} response.Envelope{data=IPBanDTO} "封禁成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/ip-bans [post]
 func (h AdminInsightHandler) CreateBan(c *gin.Context) {
 	var req BanRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.IP) == "" {
@@ -269,6 +338,18 @@ func (h AdminInsightHandler) CreateBan(c *gin.Context) {
 	response.Success(c, ipBanDTO(ban))
 }
 
+// RemoveBan 解除 IP 封禁
+// @Summary 解除 IP 封禁
+// @Description 根据记录 ID 解除对指定 IP 的拦截封禁
+// @Tags 仪表盘与统计分析
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "封禁记录 ID"
+// @Success 200 {object} response.Envelope{data=object} "解封成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "记录不存在"
+// @Router /admin/ip-bans/{id} [delete]
 func (h AdminInsightHandler) RemoveBan(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || id == 0 {
@@ -287,6 +368,19 @@ func (h AdminInsightHandler) RemoveBan(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+// Chat AI 单次对话
+// @Summary AI 单次对话
+// @Description 携带历史消息列表向后台配置的 AI 大模型发起单次问答
+// @Tags AI 助手与智能工具
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body AIChatRequest true "对话消息列表"
+// @Success 200 {object} response.Envelope{data=AIChatResponse} "AI 回复"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 502 {object} response.ErrorResponse "模型调用失败"
+// @Router /admin/ai/chat [post]
 func (h AdminInsightHandler) Chat(c *gin.Context) {
 	var req AIChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil || len(req.Messages) == 0 || len(req.Messages) > 20 {
@@ -301,6 +395,19 @@ func (h AdminInsightHandler) Chat(c *gin.Context) {
 	response.Success(c, AIChatResponse{Answer: answer, Mode: "deepseek", Model: h.model})
 }
 
+// Beautify 文章 AI 润色美化
+// @Summary 文章 AI 润色美化
+// @Description 调用大模型自动优化文章标题、摘要和 Markdown 正文排版
+// @Tags AI 助手与智能工具
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body BeautifyRequest true "文章润色请求"
+// @Success 200 {object} response.Envelope{data=BeautifyResponse} "润色结果"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 502 {object} response.ErrorResponse "润色处理失败"
+// @Router /admin/ai/beautify [post]
 func (h AdminInsightHandler) Beautify(c *gin.Context) {
 	var req BeautifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" {

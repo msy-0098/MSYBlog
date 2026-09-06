@@ -89,6 +89,18 @@ func (h VisitorAuthHandler) WithNotifications(notifications *service.Notificatio
 	return h
 }
 
+// SendEmailCode 发送邮箱验证码
+// @Summary 发送邮箱验证码
+// @Description 发送用于注册（register）或重置密码（reset）的邮箱数字验证码
+// @Tags 访客认证
+// @Accept json
+// @Produce json
+// @Param request body EmailCodeRequest true "邮箱与用途"
+// @Success 200 {object} response.Envelope{data=object} "发送成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 429 {object} response.ErrorResponse "请求过于频繁"
+// @Failure 500 {object} response.ErrorResponse "服务器错误"
+// @Router /auth/email-code [post]
 func (h VisitorAuthHandler) SendEmailCode(c *gin.Context) {
 	var req EmailCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -206,6 +218,18 @@ func durationSeconds(duration time.Duration) int {
 	return seconds
 }
 
+// Register 访客注册
+// @Summary 访客注册
+// @Description 访客凭邮箱验证码注册账号并自动登录
+// @Tags 访客认证
+// @Accept json
+// @Produce json
+// @Param request body VisitorRegisterRequest true "注册信息"
+// @Success 200 {object} response.Envelope{data=VisitorAuthResponse} "注册成功"
+// @Failure 400 {object} response.ErrorResponse "验证码错误或参数不合法"
+// @Failure 409 {object} response.ErrorResponse "邮箱已存在"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /auth/register [post]
 func (h VisitorAuthHandler) Register(c *gin.Context) {
 	var req VisitorRegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -283,6 +307,18 @@ func (h VisitorAuthHandler) Register(c *gin.Context) {
 	response.Success(c, VisitorAuthResponse{User: visitorUserDTO(user)})
 }
 
+// Login 访客登录
+// @Summary 访客登录
+// @Description 访客邮箱密码登录，登录成功后写入认证 Cookie
+// @Tags 访客认证
+// @Accept json
+// @Produce json
+// @Param request body VisitorLoginRequest true "登录信息"
+// @Success 200 {object} response.Envelope{data=VisitorAuthResponse} "登录成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "邮箱或密码错误"
+// @Failure 429 {object} response.ErrorResponse "多次登录失败账号暂时锁定"
+// @Router /auth/login [post]
 func (h VisitorAuthHandler) Login(c *gin.Context) {
 	var req VisitorLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -332,6 +368,13 @@ func (h VisitorAuthHandler) Login(c *gin.Context) {
 	response.Success(c, VisitorAuthResponse{User: visitorUserDTO(user)})
 }
 
+// Logout 访客退出登录
+// @Summary 访客退出登录
+// @Description 清除访客认证状态与 Cookie
+// @Tags 访客认证
+// @Produce json
+// @Success 200 {object} response.Envelope{data=object} "退出登录成功"
+// @Router /auth/logout [post]
 func (h VisitorAuthHandler) Logout(c *gin.Context) {
 	if raw, err := c.Cookie(middleware.VisitorTokenCookie); err == nil && strings.TrimSpace(raw) != "" {
 		if claims, err := auth.ParseToken(h.jwtSecret, strings.TrimSpace(raw)); err == nil {
@@ -342,6 +385,16 @@ func (h VisitorAuthHandler) Logout(c *gin.Context) {
 	response.Success(c, gin.H{"loggedOut": true})
 }
 
+// ResetPassword 重置密码
+// @Summary 重置访客密码
+// @Description 访客通过邮箱验证码重置登录密码
+// @Tags 访客认证
+// @Accept json
+// @Produce json
+// @Param request body VisitorResetPasswordRequest true "重置密码请求"
+// @Success 200 {object} response.Envelope{data=object} "重置成功"
+// @Failure 400 {object} response.ErrorResponse "验证码错误或过期"
+// @Router /auth/reset-password [post]
 func (h VisitorAuthHandler) ResetPassword(c *gin.Context) {
 	var req VisitorResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

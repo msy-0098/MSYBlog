@@ -51,6 +51,18 @@ func NewAdminAuthHandler(db *gorm.DB, jwtSecret string) AdminAuthHandler {
 	}
 }
 
+// Login 管理员登录
+// @Summary 管理员登录
+// @Description 校验管理员账号与密码，若启用 2FA 则返回 requires2FA 标志并下发临时待验证凭据
+// @Tags 管理员认证与安全
+// @Accept json
+// @Produce json
+// @Param request body LoginRequest true "管理员登录表单"
+// @Success 200 {object} response.Envelope{data=LoginResponse} "登录成功或要求2FA"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "账号或密码错误"
+// @Failure 429 {object} response.ErrorResponse "尝试过于频繁"
+// @Router /admin/login [post]
 func (h AdminAuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -108,6 +120,17 @@ type Login2FARequest struct {
 	Code string `json:"code"`
 }
 
+// Login2FA 2FA 二次验证登录
+// @Summary 2FA 二次验证登录
+// @Description 提交动态验证码完成 2FA 登录，验证成功后签发管理端 Token 与 CSRF Token
+// @Tags 管理员认证与安全
+// @Accept json
+// @Produce json
+// @Param request body Login2FARequest true "TOTP 6位验证码"
+// @Success 200 {object} response.Envelope{data=LoginResponse} "2FA 验证成功并完成登录"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "验证码错误或临时凭据失效"
+// @Router /admin/login/2fa [post]
 func (h AdminAuthHandler) Login2FA(c *gin.Context) {
 	var req Login2FARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -157,6 +180,15 @@ func (h AdminAuthHandler) completeLogin(c *gin.Context, user model.User, lockKey
 	response.Success(c, LoginResponse{User: adminUserDTO(user)})
 }
 
+// Logout 管理员退出登录
+// @Summary 管理员退出登录
+// @Description 清除管理员 Session Cookie 与 CSRF 令牌
+// @Tags 管理员认证与安全
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=object} "退出成功"
+// @Router /admin/logout [post]
 func (h AdminAuthHandler) Logout(c *gin.Context) {
 	if claims, ok := parseOptionalClaims(c, h.jwtSecret, middleware.AdminTokenCookie); ok {
 		_ = h.db.Model(&model.User{}).Where("id = ?", claims.UserID).UpdateColumn("token_version", gorm.Expr("token_version + 1")).Error
@@ -167,6 +199,16 @@ func (h AdminAuthHandler) Logout(c *gin.Context) {
 	response.Success(c, gin.H{"loggedOut": true})
 }
 
+// Profile 获取当前登录管理员信息
+// @Summary 获取当前管理员资料
+// @Description 获取当前已登录管理员的个人信息、权限及2FA状态
+// @Tags 管理员认证与安全
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=AdminUserDTO} "个人资料"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/profile [get]
 func (h AdminAuthHandler) Profile(c *gin.Context) {
 	claims, ok := c.MustGet(middleware.CurrentUserKey).(*auth.Claims)
 	if !ok {
@@ -187,6 +229,19 @@ type ChangePasswordRequest struct {
 	NewPassword     string `json:"newPassword"`
 }
 
+// ChangePassword 管理员修改密码
+// @Summary 管理员修改密码
+// @Description 校验原密码并更新管理员账号密码，更新成功后使旧会话失效
+// @Tags 管理员认证与安全
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body ChangePasswordRequest true "修改密码请求"
+// @Success 200 {object} response.Envelope{data=object} "修改密码成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误或密码不合规"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/password [put]
 func (h AdminAuthHandler) ChangePassword(c *gin.Context) {
 	claims, ok := c.MustGet(middleware.CurrentUserKey).(*auth.Claims)
 	if !ok {
@@ -246,6 +301,16 @@ type Setup2FAResponse struct {
 	OTPAuthURL string `json:"otpauthUrl"`
 }
 
+// Setup2FA 获取2FA配置密钥
+// @Summary 生成 2FA 密钥与配置二维码
+// @Description 为当前管理员生成未激活的 TOTP 密钥和二维码配置 URL
+// @Tags 管理员认证与安全
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=Setup2FAResponse} "生成成功"
+// @Failure 400 {object} response.ErrorResponse "两步验证已启用"
+// @Router /admin/2fa/setup [post]
 func (h AdminAuthHandler) Setup2FA(c *gin.Context) {
 	user, ok := h.currentAdmin(c)
 	if !ok {
@@ -278,6 +343,18 @@ type Enable2FARequest struct {
 	Code string `json:"code"`
 }
 
+// Enable2FA 开启两步验证
+// @Summary 校验并启用两步验证
+// @Description 输入 TOTP 验证码确认绑定，正式激活 2FA
+// @Tags 管理员认证与安全
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body Enable2FARequest true "TOTP 验证码"
+// @Success 200 {object} response.Envelope{data=object} "启用成功"
+// @Failure 400 {object} response.ErrorResponse "验证码错误或未生成密钥"
+// @Router /admin/2fa/enable [post]
 func (h AdminAuthHandler) Enable2FA(c *gin.Context) {
 	user, ok := h.currentAdmin(c)
 	if !ok {
@@ -308,6 +385,18 @@ type Disable2FARequest struct {
 	Code     string `json:"code"`
 }
 
+// Disable2FA 关闭两步验证
+// @Summary 关闭两步验证
+// @Description 校验当前密码及动态码，关闭管理员 2FA 功能
+// @Tags 管理员认证与安全
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body Disable2FARequest true "密码与动态码"
+// @Success 200 {object} response.Envelope{data=object} "关闭成功"
+// @Failure 400 {object} response.ErrorResponse "密码或验证码错误"
+// @Router /admin/2fa/disable [post]
 func (h AdminAuthHandler) Disable2FA(c *gin.Context) {
 	user, ok := h.currentAdmin(c)
 	if !ok {

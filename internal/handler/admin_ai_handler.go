@@ -58,6 +58,16 @@ func NewAdminAIHandler(service *service.AIConversationService) AdminAIHandler {
 	return AdminAIHandler{service: service}
 }
 
+// List 获取 AI 对话会话列表
+// @Summary 获取 AI 对话会话列表
+// @Description 查询当前管理员创建的全部 AI 对话会话
+// @Tags AI 助手与智能工具
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=[]AIConversationDTO} "会话列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/ai/conversations [get]
 func (h AdminAIHandler) List(c *gin.Context) {
 	adminID, ok := adminIDFromContext(c)
 	if !ok {
@@ -75,6 +85,16 @@ func (h AdminAIHandler) List(c *gin.Context) {
 	response.Success(c, list)
 }
 
+// Create 新建 AI 对话会话
+// @Summary 新建 AI 对话会话
+// @Description 创建一个空对话会话，随后可调用流式对话接口交流
+// @Tags AI 助手与智能工具
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=AIConversationDTO} "新建会话"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/ai/conversations [post]
 func (h AdminAIHandler) Create(c *gin.Context) {
 	adminID, ok := adminIDFromContext(c)
 	if !ok {
@@ -88,6 +108,18 @@ func (h AdminAIHandler) Create(c *gin.Context) {
 	response.Success(c, aiConversationDTO(conversation))
 }
 
+// Get 获取指定 AI 会话详情与消息历史
+// @Summary 获取指定 AI 会话详情与历史消息
+// @Description 根据会话 ID 获取会话元数据及完整的历史消息记录
+// @Tags AI 助手与智能工具
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "会话 ID"
+// @Success 200 {object} response.Envelope{data=AIConversationDetailDTO} "会话详情"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "会话不存在"
+// @Router /admin/ai/conversations/{id} [get]
 func (h AdminAIHandler) Get(c *gin.Context) {
 	adminID, id, ok := adminConversationID(c)
 	if !ok {
@@ -104,6 +136,21 @@ func (h AdminAIHandler) Get(c *gin.Context) {
 	response.Success(c, AIConversationDetailDTO{AIConversationDTO: aiConversationDTO(conversation), Messages: list})
 }
 
+// Rename 重命名 AI 对话会话
+// @Summary 重命名 AI 对话会话
+// @Description 修改会话标题名称
+// @Tags AI 助手与智能工具
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "会话 ID"
+// @Param request body ConversationRequest true "新标题"
+// @Success 200 {object} response.Envelope{data=AIConversationDTO} "更新成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "会话不存在"
+// @Router /admin/ai/conversations/{id} [patch]
 func (h AdminAIHandler) Rename(c *gin.Context) {
 	adminID, id, ok := adminConversationID(c)
 	if !ok {
@@ -121,6 +168,18 @@ func (h AdminAIHandler) Rename(c *gin.Context) {
 	response.Success(c, aiConversationDTO(conversation))
 }
 
+// Delete 删除单个 AI 对话会话
+// @Summary 删除单个 AI 对话会话
+// @Description 根据会话 ID 删除对话及其所有消息
+// @Tags AI 助手与智能工具
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "会话 ID"
+// @Success 200 {object} response.Envelope{data=object} "删除成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "会话不存在"
+// @Router /admin/ai/conversations/{id} [delete]
 func (h AdminAIHandler) Delete(c *gin.Context) {
 	adminID, id, ok := adminConversationID(c)
 	if !ok {
@@ -132,6 +191,16 @@ func (h AdminAIHandler) Delete(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+// Clear 清空当前管理员的所有 AI 对话会话
+// @Summary 清空全部 AI 对话会话
+// @Description 批量删除当前管理员名下的全部对话记录
+// @Tags AI 助手与智能工具
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=object} "清空成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/ai/conversations [delete]
 func (h AdminAIHandler) Clear(c *gin.Context) {
 	adminID, ok := adminIDFromContext(c)
 	if !ok {
@@ -143,6 +212,21 @@ func (h AdminAIHandler) Clear(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+// StreamMessage 发送消息并流式接收 AI 回复 (SSE)
+// @Summary 发送消息并流式接收 AI 回复 (SSE)
+// @Description 向指定会话发送提问，并通过 Server-Sent Events (SSE) 持续接收流式输出
+// @Tags AI 助手与智能工具
+// @Accept json
+// @Produce text/event-stream
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "会话 ID"
+// @Param request body ConversationMessageRequest true "消息内容"
+// @Success 200 {string} string "SSE 流式事件 (meta/delta/done/error)"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "会话不存在"
+// @Router /admin/ai/conversations/{id}/messages/stream [post]
 func (h AdminAIHandler) StreamMessage(c *gin.Context) {
 	adminID, id, ok := adminConversationID(c)
 	if !ok {

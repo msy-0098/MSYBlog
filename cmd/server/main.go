@@ -1,3 +1,18 @@
+// @title 马森雨个人技术博客 API
+// @version 1.0
+// @description 马森雨个人技术博客（masenyu.top）RESTful API 接口文档，涵盖文章、分类、标签、项目、友链、评论、AI助手、数据看板与站点管理等模块。
+// @contact.name 马森雨
+// @contact.url https://masenyu.top
+// @host localhost:8080
+// @BasePath /api
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description 请输入 JWT Token，格式为: Bearer <token>
+// @securityDefinitions.apikey CsrfToken
+// @in header
+// @name X-CSRF-Token
+// @description 管理端防跨站请求伪造令牌
 package main
 
 import (

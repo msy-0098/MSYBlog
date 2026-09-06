@@ -100,6 +100,19 @@ func NewAdminContentHandler(db *gorm.DB, cfg config.Config) AdminContentHandler 
 	return AdminContentHandler{db: db, cfg: cfg}
 }
 
+// ListAdminPosts 管理端文章列表
+// @Summary 管理端文章列表
+// @Description 分页查询管理后台全部文章（含草稿、已发布、隐藏）
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param page query int false "当前页码" default(1)
+// @Param pageSize query int false "每页条数" default(10)
+// @Success 200 {object} response.Envelope{data=PageDTO[AdminPostDTO]} "文章管理列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 403 {object} response.ErrorResponse "无权限"
+// @Router /admin/posts [get]
 func (h AdminContentHandler) ListAdminPosts(c *gin.Context) {
 	page, pageSize := pagination(c)
 
@@ -128,6 +141,20 @@ func (h AdminContentHandler) ListAdminPosts(c *gin.Context) {
 	response.Success(c, PageDTO[AdminPostDTO]{List: list, Page: page, PageSize: pageSize, Total: total})
 }
 
+// CreatePost 新建文章
+// @Summary 新建文章
+// @Description 创建新文章，支持关联分类、标签与设置发布状态
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body AdminPostRequest true "文章内容"
+// @Success 200 {object} response.Envelope{data=AdminPostDTO} "创建成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 403 {object} response.ErrorResponse "无权限"
+// @Router /admin/posts [post]
 func (h AdminContentHandler) CreatePost(c *gin.Context) {
 	var req AdminPostRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -159,6 +186,18 @@ func (h AdminContentHandler) CreatePost(c *gin.Context) {
 	response.Success(c, adminPostDTO(post))
 }
 
+// GetAdminPost 获取管理端文章详情
+// @Summary 获取管理端文章详情
+// @Description 根据文章 ID 查询文章详情以供后台编辑
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "文章 ID"
+// @Success 200 {object} response.Envelope{data=AdminPostDTO} "文章详情"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "文章不存在"
+// @Router /admin/posts/{id} [get]
 func (h AdminContentHandler) GetAdminPost(c *gin.Context) {
 	post, ok := h.findPost(c)
 	if !ok {
@@ -168,6 +207,21 @@ func (h AdminContentHandler) GetAdminPost(c *gin.Context) {
 	response.Success(c, adminPostDTO(post))
 }
 
+// UpdatePost 更新文章
+// @Summary 更新文章
+// @Description 根据文章 ID 更新文章属性、正文、分类、标签
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "文章 ID"
+// @Param request body AdminPostRequest true "更新内容"
+// @Success 200 {object} response.Envelope{data=AdminPostDTO} "更新成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "文章不存在"
+// @Router /admin/posts/{id} [put]
 func (h AdminContentHandler) UpdatePost(c *gin.Context) {
 	post, ok := h.findPost(c)
 	if !ok {
@@ -204,6 +258,18 @@ func (h AdminContentHandler) UpdatePost(c *gin.Context) {
 	response.Success(c, adminPostDTO(updated))
 }
 
+// DeletePost 删除文章
+// @Summary 删除文章
+// @Description 根据 ID 删除指定文章及其标签关联
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "文章 ID"
+// @Success 200 {object} response.Envelope{data=object} "删除成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "文章不存在"
+// @Router /admin/posts/{id} [delete]
 func (h AdminContentHandler) DeletePost(c *gin.Context) {
 	post, ok := h.findPost(c)
 	if !ok {
@@ -218,6 +284,16 @@ func (h AdminContentHandler) DeletePost(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+// ListAdminCategories 管理端分类列表
+// @Summary 管理端分类列表
+// @Description 查询全部文章分类及对应文章数量
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=ListDTO[TaxonomyDTO]} "分类列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/categories [get]
 func (h AdminContentHandler) ListAdminCategories(c *gin.Context) {
 	var categories []model.Category
 	if err := h.db.Order("name asc").Find(&categories).Error; err != nil {
@@ -234,6 +310,19 @@ func (h AdminContentHandler) ListAdminCategories(c *gin.Context) {
 	response.Success(c, ListDTO[TaxonomyDTO]{List: list})
 }
 
+// CreateCategory 新增文章分类
+// @Summary 新增文章分类
+// @Description 新建文章分类，slug 需唯一
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body TaxonomyRequest true "分类信息"
+// @Success 200 {object} response.Envelope{data=TaxonomyDTO} "创建成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/categories [post]
 func (h AdminContentHandler) CreateCategory(c *gin.Context) {
 	var req TaxonomyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -255,6 +344,20 @@ func (h AdminContentHandler) CreateCategory(c *gin.Context) {
 	response.Success(c, TaxonomyDTO{ID: category.ID, Name: category.Name, Slug: category.Slug})
 }
 
+// UpdateCategory 更新文章分类
+// @Summary 更新文章分类
+// @Description 根据分类 ID 更新名称与 slug
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "分类 ID"
+// @Param request body TaxonomyRequest true "分类信息"
+// @Success 200 {object} response.Envelope{data=TaxonomyDTO} "更新成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/categories/{id} [put]
 func (h AdminContentHandler) UpdateCategory(c *gin.Context) {
 	var category model.Category
 	if !h.findByID(c, &category) {
@@ -281,6 +384,18 @@ func (h AdminContentHandler) UpdateCategory(c *gin.Context) {
 	response.Success(c, TaxonomyDTO{ID: category.ID, Name: category.Name, Slug: category.Slug})
 }
 
+// DeleteCategory 删除文章分类
+// @Summary 删除文章分类
+// @Description 删除指定分类（若有关联文章则拒绝删除）
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "分类 ID"
+// @Success 200 {object} response.Envelope{data=object} "删除成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 409 {object} response.ErrorResponse "分类已关联文章"
+// @Router /admin/categories/{id} [delete]
 func (h AdminContentHandler) DeleteCategory(c *gin.Context) {
 	var category model.Category
 	if !h.findByID(c, &category) {
@@ -305,6 +420,16 @@ func (h AdminContentHandler) DeleteCategory(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+// ListAdminTags 管理端标签列表
+// @Summary 管理端标签列表
+// @Description 查询全部文章标签及对应文章数量
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=ListDTO[TaxonomyDTO]} "标签列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/tags [get]
 func (h AdminContentHandler) ListAdminTags(c *gin.Context) {
 	var tags []model.Tag
 	if err := h.db.Order("name asc").Find(&tags).Error; err != nil {
@@ -321,6 +446,19 @@ func (h AdminContentHandler) ListAdminTags(c *gin.Context) {
 	response.Success(c, ListDTO[TaxonomyDTO]{List: list})
 }
 
+// CreateTag 新增文章标签
+// @Summary 新增文章标签
+// @Description 新建文章标签，slug 需唯一
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body TaxonomyRequest true "标签信息"
+// @Success 200 {object} response.Envelope{data=TaxonomyDTO} "创建成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/tags [post]
 func (h AdminContentHandler) CreateTag(c *gin.Context) {
 	var req TaxonomyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -342,6 +480,20 @@ func (h AdminContentHandler) CreateTag(c *gin.Context) {
 	response.Success(c, TaxonomyDTO{ID: tag.ID, Name: tag.Name, Slug: tag.Slug})
 }
 
+// UpdateTag 更新文章标签
+// @Summary 更新文章标签
+// @Description 根据标签 ID 更新名称与 slug
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "标签 ID"
+// @Param request body TaxonomyRequest true "标签信息"
+// @Success 200 {object} response.Envelope{data=TaxonomyDTO} "更新成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/tags/{id} [put]
 func (h AdminContentHandler) UpdateTag(c *gin.Context) {
 	var tag model.Tag
 	if !h.findByID(c, &tag) {
@@ -368,6 +520,17 @@ func (h AdminContentHandler) UpdateTag(c *gin.Context) {
 	response.Success(c, TaxonomyDTO{ID: tag.ID, Name: tag.Name, Slug: tag.Slug})
 }
 
+// DeleteTag 删除文章标签
+// @Summary 删除文章标签
+// @Description 删除指定文章标签
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "标签 ID"
+// @Success 200 {object} response.Envelope{data=object} "删除成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/tags/{id} [delete]
 func (h AdminContentHandler) DeleteTag(c *gin.Context) {
 	var tag model.Tag
 	if !h.findByID(c, &tag) {
@@ -382,6 +545,16 @@ func (h AdminContentHandler) DeleteTag(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+// ListProjects 管理端项目列表
+// @Summary 管理端项目列表
+// @Description 管理后台查询全部项目（含隐藏项目）
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=ListDTO[ProjectDTO]} "项目列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/projects [get]
 func (h AdminContentHandler) ListProjects(c *gin.Context) {
 	var projects []model.Project
 	if err := h.db.Order("sort desc").Order("updated_at desc").Find(&projects).Error; err != nil {
@@ -397,6 +570,19 @@ func (h AdminContentHandler) ListProjects(c *gin.Context) {
 	response.Success(c, ListDTO[ProjectDTO]{List: list})
 }
 
+// CreateProject 新建项目
+// @Summary 新建项目
+// @Description 管理后台新增技术项目作品
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body ProjectRequest true "项目信息"
+// @Success 200 {object} response.Envelope{data=ProjectDTO} "创建成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/projects [post]
 func (h AdminContentHandler) CreateProject(c *gin.Context) {
 	var req ProjectRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -426,6 +612,20 @@ func (h AdminContentHandler) CreateProject(c *gin.Context) {
 	response.Success(c, projectDTO(project))
 }
 
+// UpdateProject 更新项目
+// @Summary 更新项目
+// @Description 根据 ID 更新项目作品信息
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "项目 ID"
+// @Param request body ProjectRequest true "项目信息"
+// @Success 200 {object} response.Envelope{data=ProjectDTO} "更新成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/projects/{id} [put]
 func (h AdminContentHandler) UpdateProject(c *gin.Context) {
 	var project model.Project
 	if !h.findByID(c, &project) {
@@ -451,6 +651,17 @@ func (h AdminContentHandler) UpdateProject(c *gin.Context) {
 	response.Success(c, projectDTO(updated))
 }
 
+// DeleteProject 删除项目
+// @Summary 删除项目
+// @Description 根据 ID 删除项目作品
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "项目 ID"
+// @Success 200 {object} response.Envelope{data=object} "删除成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/projects/{id} [delete]
 func (h AdminContentHandler) DeleteProject(c *gin.Context) {
 	var project model.Project
 	if !h.findByID(c, &project) {
@@ -465,6 +676,16 @@ func (h AdminContentHandler) DeleteProject(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+// ListLinks 管理端友链列表
+// @Summary 管理端友链列表
+// @Description 管理后台查询全部友情链接（含隐藏友链）
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=ListDTO[FriendLinkDTO]} "友链列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/links [get]
 func (h AdminContentHandler) ListLinks(c *gin.Context) {
 	var links []model.FriendLink
 	if err := h.db.Order("sort desc").Order("id asc").Find(&links).Error; err != nil {
@@ -480,6 +701,19 @@ func (h AdminContentHandler) ListLinks(c *gin.Context) {
 	response.Success(c, ListDTO[FriendLinkDTO]{List: list})
 }
 
+// CreateLink 新增友情链接
+// @Summary 新增友情链接
+// @Description 管理后台新增友情链接
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body FriendLinkRequest true "友链信息"
+// @Success 200 {object} response.Envelope{data=FriendLinkDTO} "创建成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/links [post]
 func (h AdminContentHandler) CreateLink(c *gin.Context) {
 	var req FriendLinkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -509,6 +743,20 @@ func (h AdminContentHandler) CreateLink(c *gin.Context) {
 	response.Success(c, friendLinkDTO(link))
 }
 
+// UpdateLink 更新友情链接
+// @Summary 更新友情链接
+// @Description 根据 ID 更新友情链接
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "友链 ID"
+// @Param request body FriendLinkRequest true "友链信息"
+// @Success 200 {object} response.Envelope{data=FriendLinkDTO} "更新成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/links/{id} [put]
 func (h AdminContentHandler) UpdateLink(c *gin.Context) {
 	var link model.FriendLink
 	if !h.findByID(c, &link) {
@@ -534,6 +782,17 @@ func (h AdminContentHandler) UpdateLink(c *gin.Context) {
 	response.Success(c, friendLinkDTO(updated))
 }
 
+// DeleteLink 删除友情链接
+// @Summary 删除友情链接
+// @Description 根据 ID 删除友情链接
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "友链 ID"
+// @Success 200 {object} response.Envelope{data=object} "删除成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/links/{id} [delete]
 func (h AdminContentHandler) DeleteLink(c *gin.Context) {
 	var link model.FriendLink
 	if !h.findByID(c, &link) {
@@ -548,10 +807,33 @@ func (h AdminContentHandler) DeleteLink(c *gin.Context) {
 	response.Success(c, gin.H{"deleted": true})
 }
 
+// GetSettings 获取站点系统设置
+// @Summary 获取站点系统设置
+// @Description 获取管理员配置的完整站点系统设置项（包含通知、备案、站长资料等）
+// @Tags 内容管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=map[string]string} "系统配置项"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/settings [get]
 func (h AdminContentHandler) GetSettings(c *gin.Context) {
 	response.Success(c, h.effectiveSettings())
 }
 
+// UpdateSettings 更新站点系统设置
+// @Summary 更新站点系统设置
+// @Description 批量更新站点系统设置键值对
+// @Tags 内容管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param request body map[string]string true "系统设置键值对"
+// @Success 200 {object} response.Envelope{data=map[string]string} "更新后的系统配置项"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/settings [put]
 func (h AdminContentHandler) UpdateSettings(c *gin.Context) {
 	var values map[string]string
 	if err := c.ShouldBindJSON(&values); err != nil {

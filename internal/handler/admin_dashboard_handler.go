@@ -49,6 +49,16 @@ func NewAdminDashboardHandler(db *gorm.DB) AdminDashboardHandler {
 	return AdminDashboardHandler{db: db}
 }
 
+// GetDashboard 获取管理后台仪表盘概览
+// @Summary 获取管理后台仪表盘概览
+// @Description 聚合统计文章数、评论数、浏览量、最近趋势与分析数据
+// @Tags 仪表盘与统计分析
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=DashboardDTO} "仪表盘数据"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/dashboard [get]
 func (h AdminDashboardHandler) GetDashboard(c *gin.Context) {
 	stats, err := h.readStats()
 	if err != nil {
@@ -77,6 +87,17 @@ func (h AdminDashboardHandler) GetDashboard(c *gin.Context) {
 	})
 }
 
+// GetTrends 获取访问趋势数据
+// @Summary 获取访问趋势数据
+// @Description 查询指定天数（7~60天，默认14天）的每日PV、UV、评论与新增访客趋势
+// @Tags 仪表盘与统计分析
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param days query int false "统计天数(7-60)" default(14)
+// @Success 200 {object} response.Envelope{data=TrendsDTO} "趋势数据"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/trends [get]
 func (h AdminDashboardHandler) GetTrends(c *gin.Context) {
 	days := 14
 	if raw := c.Query("days"); raw != "" {

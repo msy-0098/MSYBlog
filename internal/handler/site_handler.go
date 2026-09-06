@@ -34,6 +34,14 @@ func NewSiteHandler(db *gorm.DB, cfg config.Config) SiteHandler {
 	}
 }
 
+// GetSite 获取站点公开配置
+// @Summary 获取站点公开配置
+// @Description 获取博客站点的基础公开信息，包括站点标题、副标题、站长名、域名、描述及导航项
+// @Tags 站点与公开信息
+// @Produce json
+// @Success 200 {object} response.Envelope{data=SiteProfile} "获取成功"
+// @Failure 500 {object} response.ErrorResponse "服务器错误"
+// @Router /site [get]
 func (h SiteHandler) GetSite(c *gin.Context) {
 	settings, err := h.loadSettings()
 	if err != nil {

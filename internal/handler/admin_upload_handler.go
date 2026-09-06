@@ -29,6 +29,19 @@ type UploadDTO struct {
 	Size     int64  `json:"size"`
 }
 
+// UploadImage 上传图片
+// @Summary 上传图片
+// @Description 管理员上传文章封面或正文插图（支持 jpg/png/gif/webp，大小不超过 5MB，自动剥离 EXIF 信息）
+// @Tags 内容管理
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param file formData file true "图片文件"
+// @Success 200 {object} response.Envelope{data=UploadDTO} "上传成功"
+// @Failure 400 {object} response.ErrorResponse "文件不符合要求"
+// @Failure 500 {object} response.ErrorResponse "服务器错误"
+// @Router /admin/upload [post]
 func (h AdminContentHandler) UploadImage(c *gin.Context) {
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {

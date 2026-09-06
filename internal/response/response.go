@@ -9,8 +9,22 @@ import (
 )
 
 type Envelope struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int    `json:"code" example:"0"`
+	Message string `json:"message" example:"success"`
+	Data    any    `json:"data"`
+}
+
+// SuccessResponse 成功响应示例结构
+type SuccessResponse struct {
+	Code    int    `json:"code" example:"0"`
+	Message string `json:"message" example:"success"`
+	Data    any    `json:"data"`
+}
+
+// ErrorResponse 失败响应结构
+type ErrorResponse struct {
+	Code    int    `json:"code" example:"400"`
+	Message string `json:"message" example:"参数错误"`
 	Data    any    `json:"data"`
 }
 

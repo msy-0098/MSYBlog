@@ -6,8 +6,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"gorm.io/gorm"
 
+	_ "masenyu.top/blog/backend/docs"
 	"masenyu.top/blog/backend/internal/ai"
 	"masenyu.top/blog/backend/internal/config"
 	"masenyu.top/blog/backend/internal/handler"
@@ -79,7 +82,12 @@ func New(deps Dependencies) *gin.Engine {
 	engine.GET("/sitemap.xml", feedHandler.Sitemap)
 	engine.GET("/robots.txt", feedHandler.Robots)
 
+	// OpenAPI / Swagger Documentation
+	swaggerHandler := ginSwagger.WrapHandler(swaggerFiles.Handler)
+	engine.GET("/swagger/*any", swaggerHandler)
+
 	api := engine.Group("/api")
+	api.GET("/swagger/*any", swaggerHandler)
 	api.GET("/site", siteHandler.GetSite)
 	api.GET("/health", func(c *gin.Context) { response.Success(c, gin.H{"status": "ok"}) })
 	api.GET("/rss.xml", feedHandler.RSS)

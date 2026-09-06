@@ -1,0 +1,3527 @@
+basePath: /api
+definitions:
+  ai.Message:
+    properties:
+      content:
+        type: string
+      role:
+        type: string
+    type: object
+  ai.ProviderErrorKind:
+    enum:
+    - config
+    - rate_limit
+    - timeout
+    - unavailable
+    type: string
+    x-enum-varnames:
+    - ProviderErrorConfig
+    - ProviderErrorRateLimit
+    - ProviderErrorTimeout
+    - ProviderErrorUnavailable
+  handler.AIAnalysisDTO:
+    properties:
+      mode:
+        type: string
+      signals:
+        items:
+          type: string
+        type: array
+      summary:
+        type: string
+    type: object
+  handler.AIChatRequest:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/ai.Message'
+        type: array
+    type: object
+  handler.AIChatResponse:
+    properties:
+      answer:
+        type: string
+      mode:
+        type: string
+      model:
+        type: string
+    type: object
+  handler.AIConversationDTO:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: integer
+      lastMessageAt:
+        type: string
+      messageCount:
+        type: integer
+      model:
+        type: string
+      title:
+        type: string
+      titleMode:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  handler.AIConversationDetailDTO:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: integer
+      lastMessageAt:
+        type: string
+      messageCount:
+        type: integer
+      messages:
+        items:
+          $ref: '#/definitions/handler.AIMessageDTO'
+        type: array
+      model:
+        type: string
+      title:
+        type: string
+      titleMode:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  handler.AIHealthDTO:
+    properties:
+      checkedAt:
+        type: string
+      errorKind:
+        $ref: '#/definitions/ai.ProviderErrorKind'
+      healthy:
+        type: boolean
+    type: object
+  handler.AIMessageDTO:
+    properties:
+      content:
+        type: string
+      createdAt:
+        type: string
+      errorMessage:
+        type: string
+      id:
+        type: integer
+      model:
+        type: string
+      role:
+        type: string
+      sequence:
+        type: integer
+      status:
+        type: string
+    type: object
+  handler.AIStatusDTO:
+    properties:
+      baseURLSummary:
+        type: string
+      configured:
+        type: boolean
+      enabled:
+        type: boolean
+      lastHealth:
+        $ref: '#/definitions/handler.AIHealthDTO'
+      model:
+        type: string
+      provider:
+        type: string
+    type: object
+  handler.AdminPostDTO:
+    properties:
+      category:
+        $ref: '#/definitions/handler.TaxonomyDTO'
+      categoryId:
+        type: integer
+      content:
+        type: string
+      cover:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: integer
+      likeCount:
+        type: integer
+      publishedAt:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      summary:
+        type: string
+      tags:
+        items:
+          $ref: '#/definitions/handler.TaxonomyDTO'
+        type: array
+      title:
+        type: string
+      updatedAt:
+        type: string
+      viewCount:
+        type: integer
+    type: object
+  handler.AdminPostRequest:
+    properties:
+      categoryId:
+        type: integer
+      content:
+        type: string
+      cover:
+        type: string
+      publishedAt:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      summary:
+        type: string
+      tagIds:
+        items:
+          type: integer
+        type: array
+      title:
+        type: string
+    type: object
+  handler.AdminUserDTO:
+    properties:
+      createdAt:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      nickname:
+        type: string
+      role:
+        type: string
+      totpEnabled:
+        type: boolean
+      username:
+        type: string
+    type: object
+  handler.AdminVisitorDTO:
+    properties:
+      createdAt:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      nickname:
+        type: string
+      role:
+        type: string
+      username:
+        type: string
+    type: object
+  handler.AnalyticsDTO:
+    properties:
+      failedRequests:
+        type: integer
+      recentBans:
+        items:
+          $ref: '#/definitions/handler.IPBanDTO'
+        type: array
+      todayRequests:
+        type: integer
+      topIPs:
+        items:
+          $ref: '#/definitions/handler.TopIPDTO'
+        type: array
+      topPaths:
+        items:
+          $ref: '#/definitions/handler.TopPathDTO'
+        type: array
+      totalRequests:
+        type: integer
+      uniqueIPs:
+        type: integer
+    type: object
+  handler.ArchiveMonth:
+    properties:
+      month:
+        type: integer
+      posts:
+        items:
+          $ref: '#/definitions/handler.PostSummary'
+        type: array
+    type: object
+  handler.ArchiveYear:
+    properties:
+      months:
+        items:
+          $ref: '#/definitions/handler.ArchiveMonth'
+        type: array
+      year:
+        type: integer
+    type: object
+  handler.BanRequest:
+    properties:
+      duration:
+        type: integer
+      ip:
+        type: string
+      reason:
+        type: string
+    type: object
+  handler.BeautifyRequest:
+    properties:
+      content:
+        type: string
+      summary:
+        type: string
+      title:
+        type: string
+    type: object
+  handler.BeautifyResponse:
+    properties:
+      content:
+        type: string
+      summary:
+        type: string
+      title:
+        type: string
+    type: object
+  handler.ChangePasswordRequest:
+    properties:
+      currentPassword:
+        type: string
+      newPassword:
+        type: string
+    type: object
+  handler.CommentAuthorDTO:
+    properties:
+      email:
+        type: string
+      nickname:
+        type: string
+    type: object
+  handler.CommentDTO:
+    properties:
+      author:
+        $ref: '#/definitions/handler.CommentAuthorDTO'
+      content:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: integer
+      postId:
+        type: integer
+      postTitle:
+        type: string
+      status:
+        type: string
+    type: object
+  handler.CommentRequest:
+    properties:
+      content:
+        type: string
+    type: object
+  handler.CommentStatusRequest:
+    properties:
+      status:
+        example: approved
+        type: string
+    type: object
+  handler.ConversationMessageRequest:
+    properties:
+      content:
+        type: string
+    type: object
+  handler.ConversationRequest:
+    properties:
+      title:
+        type: string
+    type: object
+  handler.DashboardDTO:
+    properties:
+      analytics:
+        $ref: '#/definitions/handler.AnalyticsDTO'
+      recentComments:
+        items:
+          $ref: '#/definitions/handler.CommentDTO'
+        type: array
+      stats:
+        $ref: '#/definitions/handler.DashboardStatsDTO'
+      trends:
+        $ref: '#/definitions/handler.TrendsDTO'
+    type: object
+  handler.DashboardStatsDTO:
+    properties:
+      approvedCommentCount:
+        type: integer
+      commentCount:
+        type: integer
+      draftPostCount:
+        type: integer
+      hiddenCommentCount:
+        type: integer
+      postCount:
+        type: integer
+      publishedPostCount:
+        type: integer
+      totalViews:
+        type: integer
+      visitorCount:
+        type: integer
+    type: object
+  handler.Disable2FARequest:
+    properties:
+      code:
+        type: string
+      password:
+        type: string
+    type: object
+  handler.EmailCodeRequest:
+    properties:
+      email:
+        type: string
+      purpose:
+        type: string
+    type: object
+  handler.Enable2FARequest:
+    properties:
+      code:
+        type: string
+    type: object
+  handler.FriendLinkDTO:
+    properties:
+      description:
+        type: string
+      id:
+        type: integer
+      logo:
+        type: string
+      name:
+        type: string
+      sort:
+        type: integer
+      url:
+        type: string
+      visible:
+        type: boolean
+    type: object
+  handler.FriendLinkRequest:
+    properties:
+      description:
+        type: string
+      logo:
+        type: string
+      name:
+        type: string
+      sort:
+        type: integer
+      url:
+        type: string
+      visible:
+        type: boolean
+    type: object
+  handler.IPBanDTO:
+    properties:
+      active:
+        type: boolean
+      createdAt:
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: integer
+      ip:
+        type: string
+      reason:
+        type: string
+    type: object
+  handler.IPLocationRequest:
+    properties:
+      ip:
+        type: string
+    type: object
+  handler.ListDTO-handler_ArchiveYear:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.ArchiveYear'
+        type: array
+    type: object
+  handler.ListDTO-handler_FriendLinkDTO:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.FriendLinkDTO'
+        type: array
+    type: object
+  handler.ListDTO-handler_IPBanDTO:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.IPBanDTO'
+        type: array
+    type: object
+  handler.ListDTO-handler_ProjectDTO:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.ProjectDTO'
+        type: array
+    type: object
+  handler.ListDTO-handler_TaxonomyDTO:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.TaxonomyDTO'
+        type: array
+    type: object
+  handler.Login2FARequest:
+    properties:
+      code:
+        type: string
+    type: object
+  handler.LoginRequest:
+    properties:
+      code:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  handler.LoginResponse:
+    properties:
+      requires2FA:
+        type: boolean
+      user:
+        $ref: '#/definitions/handler.AdminUserDTO'
+    type: object
+  handler.NotificationDTO:
+    properties:
+      body:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: integer
+      kind:
+        type: string
+      readAt:
+        type: string
+      refId:
+        type: integer
+      refType:
+        type: string
+      title:
+        type: string
+      unread:
+        type: boolean
+    type: object
+  handler.PageDTO-handler_AdminPostDTO:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.AdminPostDTO'
+        type: array
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      total:
+        type: integer
+    type: object
+  handler.PageDTO-handler_AdminVisitorDTO:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.AdminVisitorDTO'
+        type: array
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      total:
+        type: integer
+    type: object
+  handler.PageDTO-handler_CommentDTO:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.CommentDTO'
+        type: array
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      total:
+        type: integer
+    type: object
+  handler.PageDTO-handler_NotificationDTO:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.NotificationDTO'
+        type: array
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      total:
+        type: integer
+    type: object
+  handler.PageDTO-handler_PostSummary:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/handler.PostSummary'
+        type: array
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      total:
+        type: integer
+    type: object
+  handler.PostDetail:
+    properties:
+      category:
+        $ref: '#/definitions/handler.TaxonomyDTO'
+      content:
+        type: string
+      cover:
+        type: string
+      likeCount:
+        type: integer
+      next:
+        $ref: '#/definitions/handler.PostPointer'
+      prev:
+        $ref: '#/definitions/handler.PostPointer'
+      publishedAt:
+        type: string
+      slug:
+        type: string
+      summary:
+        type: string
+      tags:
+        items:
+          $ref: '#/definitions/handler.TaxonomyDTO'
+        type: array
+      title:
+        type: string
+      viewCount:
+        type: integer
+    type: object
+  handler.PostPointer:
+    properties:
+      publishedAt:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  handler.PostSummary:
+    properties:
+      category:
+        $ref: '#/definitions/handler.TaxonomyDTO'
+      cover:
+        type: string
+      likeCount:
+        type: integer
+      publishedAt:
+        type: string
+      slug:
+        type: string
+      summary:
+        type: string
+      tags:
+        items:
+          $ref: '#/definitions/handler.TaxonomyDTO'
+        type: array
+      title:
+        type: string
+      viewCount:
+        type: integer
+    type: object
+  handler.ProjectDTO:
+    properties:
+      cover:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      sort:
+        type: integer
+      techStack:
+        items:
+          type: string
+        type: array
+      url:
+        type: string
+      visible:
+        type: boolean
+    type: object
+  handler.ProjectRequest:
+    properties:
+      cover:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      sort:
+        type: integer
+      techStack:
+        items:
+          type: string
+        type: array
+      url:
+        type: string
+      visible:
+        type: boolean
+    type: object
+  handler.Setup2FAResponse:
+    properties:
+      otpauthUrl:
+        type: string
+      secret:
+        type: string
+    type: object
+  handler.SiteProfile:
+    properties:
+      description:
+        type: string
+      domain:
+        type: string
+      navItems:
+        items:
+          type: string
+        type: array
+      owner:
+        type: string
+      siteTitle:
+        type: string
+      subtitle:
+        type: string
+    type: object
+  handler.TaxonomyDTO:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      postCount:
+        type: integer
+      slug:
+        type: string
+    type: object
+  handler.TaxonomyRequest:
+    properties:
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  handler.TopIPDTO:
+    properties:
+      banned:
+        type: boolean
+      failures:
+        type: integer
+      ip:
+        type: string
+      lastSeen:
+        type: string
+      requests:
+        type: integer
+    type: object
+  handler.TopPathDTO:
+    properties:
+      path:
+        type: string
+      requests:
+        type: integer
+    type: object
+  handler.TrendPointDTO:
+    properties:
+      comments:
+        type: integer
+      date:
+        type: string
+      newVisitors:
+        type: integer
+      requests:
+        type: integer
+      uniqueIPs:
+        type: integer
+    type: object
+  handler.TrendsDTO:
+    properties:
+      days:
+        type: integer
+      points:
+        items:
+          $ref: '#/definitions/handler.TrendPointDTO'
+        type: array
+    type: object
+  handler.UploadDTO:
+    properties:
+      filename:
+        type: string
+      id:
+        type: integer
+      mimeType:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  handler.VisitorAuthResponse:
+    properties:
+      user:
+        $ref: '#/definitions/handler.VisitorUserDTO'
+    type: object
+  handler.VisitorLoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  handler.VisitorRegisterRequest:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+      nickname:
+        type: string
+      password:
+        type: string
+    type: object
+  handler.VisitorResetPasswordRequest:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+      newPassword:
+        type: string
+    type: object
+  handler.VisitorUserDTO:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+      nickname:
+        type: string
+      role:
+        type: string
+    type: object
+  response.Envelope:
+    properties:
+      code:
+        example: 0
+        type: integer
+      data: {}
+      message:
+        example: success
+        type: string
+    type: object
+  response.ErrorResponse:
+    properties:
+      code:
+        example: 400
+        type: integer
+      data: {}
+      message:
+        example: 参数错误
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    name: 马森雨
+    url: https://masenyu.top
+  description: 马森雨个人技术博客（masenyu.top）RESTful API 接口文档，涵盖文章、分类、标签、项目、友链、评论、AI助手、数据看板与站点管理等模块。
+  title: 马森雨个人技术博客 API
+  version: "1.0"
+paths:
+  /admin/2fa/disable:
+    post:
+      consumes:
+      - application/json
+      description: 校验当前密码及动态码，关闭管理员 2FA 功能
+      parameters:
+      - description: 密码与动态码
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.Disable2FARequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 关闭成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 密码或验证码错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 关闭两步验证
+      tags:
+      - 管理员认证与安全
+  /admin/2fa/enable:
+    post:
+      consumes:
+      - application/json
+      description: 输入 TOTP 验证码确认绑定，正式激活 2FA
+      parameters:
+      - description: TOTP 验证码
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.Enable2FARequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 启用成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 验证码错误或未生成密钥
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 校验并启用两步验证
+      tags:
+      - 管理员认证与安全
+  /admin/2fa/setup:
+    post:
+      description: 为当前管理员生成未激活的 TOTP 密钥和二维码配置 URL
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 生成成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.Setup2FAResponse'
+              type: object
+        "400":
+          description: 两步验证已启用
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 生成 2FA 密钥与配置二维码
+      tags:
+      - 管理员认证与安全
+  /admin/ai/beautify:
+    post:
+      consumes:
+      - application/json
+      description: 调用大模型自动优化文章标题、摘要和 Markdown 正文排版
+      parameters:
+      - description: 文章润色请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.BeautifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 润色结果
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.BeautifyResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "502":
+          description: 润色处理失败
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 文章 AI 润色美化
+      tags:
+      - AI 助手与智能工具
+  /admin/ai/chat:
+    post:
+      consumes:
+      - application/json
+      description: 携带历史消息列表向后台配置的 AI 大模型发起单次问答
+      parameters:
+      - description: 对话消息列表
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AIChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: AI 回复
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AIChatResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "502":
+          description: 模型调用失败
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: AI 单次对话
+      tags:
+      - AI 助手与智能工具
+  /admin/ai/conversations:
+    delete:
+      description: 批量删除当前管理员名下的全部对话记录
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 清空成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 清空全部 AI 对话会话
+      tags:
+      - AI 助手与智能工具
+    get:
+      description: 查询当前管理员创建的全部 AI 对话会话
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 会话列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/handler.AIConversationDTO'
+                  type: array
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取 AI 对话会话列表
+      tags:
+      - AI 助手与智能工具
+    post:
+      description: 创建一个空对话会话，随后可调用流式对话接口交流
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 新建会话
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AIConversationDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 新建 AI 对话会话
+      tags:
+      - AI 助手与智能工具
+  /admin/ai/conversations/{id}:
+    delete:
+      description: 根据会话 ID 删除对话及其所有消息
+      parameters:
+      - description: 会话 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 会话不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 删除单个 AI 对话会话
+      tags:
+      - AI 助手与智能工具
+    get:
+      description: 根据会话 ID 获取会话元数据及完整的历史消息记录
+      parameters:
+      - description: 会话 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 会话详情
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AIConversationDetailDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 会话不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取指定 AI 会话详情与历史消息
+      tags:
+      - AI 助手与智能工具
+    patch:
+      consumes:
+      - application/json
+      description: 修改会话标题名称
+      parameters:
+      - description: 会话 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 新标题
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ConversationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AIConversationDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 会话不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 重命名 AI 对话会话
+      tags:
+      - AI 助手与智能工具
+  /admin/ai/conversations/{id}/messages/stream:
+    post:
+      consumes:
+      - application/json
+      description: 向指定会话发送提问，并通过 Server-Sent Events (SSE) 持续接收流式输出
+      parameters:
+      - description: 会话 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 消息内容
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ConversationMessageRequest'
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE 流式事件 (meta/delta/done/error)
+          schema:
+            type: string
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 会话不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 发送消息并流式接收 AI 回复 (SSE)
+      tags:
+      - AI 助手与智能工具
+  /admin/ai/health-check:
+    post:
+      description: 向 AI 上游服务发起心跳探测，验证 API Key 与连通性
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 健康检查结果
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AIHealthDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 执行 AI 服务健康检查
+      tags:
+      - AI 助手与智能工具
+  /admin/ai/insights/generate:
+    post:
+      description: 结合访问统计与博客现状，调用 AI 生成运营分析建议
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: AI 分析结果
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AIAnalysisDTO'
+              type: object
+        "502":
+          description: 大模型响应错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "503":
+          description: AI 未配置
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 生成 AI 站点运营洞察
+      tags:
+      - AI 助手与智能工具
+  /admin/ai/status:
+    get:
+      description: 查询后台配置的 AI Provider、模型名与最近健康检查结果
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: AI 服务状态
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AIStatusDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取 AI 服务状态
+      tags:
+      - AI 助手与智能工具
+  /admin/analytics:
+    get:
+      description: 查询访问日志聚合数据，包括请求量、独立 IP、异常请求与高频 IP/路径
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 统计分析数据
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AnalyticsDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取站点访问统计分析
+      tags:
+      - 仪表盘与统计分析
+  /admin/categories:
+    get:
+      description: 查询全部文章分类及对应文章数量
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 分类列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_TaxonomyDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理端分类列表
+      tags:
+      - 内容管理
+    post:
+      consumes:
+      - application/json
+      description: 新建文章分类，slug 需唯一
+      parameters:
+      - description: 分类信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.TaxonomyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.TaxonomyDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 新增文章分类
+      tags:
+      - 内容管理
+  /admin/categories/{id}:
+    delete:
+      description: 删除指定分类（若有关联文章则拒绝删除）
+      parameters:
+      - description: 分类 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "409":
+          description: 分类已关联文章
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 删除文章分类
+      tags:
+      - 内容管理
+    put:
+      consumes:
+      - application/json
+      description: 根据分类 ID 更新名称与 slug
+      parameters:
+      - description: 分类 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 分类信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.TaxonomyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.TaxonomyDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 更新文章分类
+      tags:
+      - 内容管理
+  /admin/comments:
+    get:
+      description: 管理后台分页查询所有文章评论（包括待审核、已审核和已隐藏）
+      parameters:
+      - default: 1
+        description: 当前页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 评论管理列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_CommentDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "403":
+          description: 无权限
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理员获取评论列表
+      tags:
+      - 评论互动
+  /admin/comments/{id}:
+    delete:
+      description: 根据 ID 彻底删除一条评论
+      parameters:
+      - description: 评论 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "403":
+          description: 无权限
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 评论不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理员删除评论
+      tags:
+      - 评论互动
+    put:
+      consumes:
+      - application/json
+      description: 修改评论状态为 approved（通过）、pending（待审）或 hidden（隐藏）
+      parameters:
+      - description: 评论 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 更新状态
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CommentStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.CommentDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "403":
+          description: 无权限
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 评论不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理员修改评论状态
+      tags:
+      - 评论互动
+  /admin/dashboard:
+    get:
+      description: 聚合统计文章数、评论数、浏览量、最近趋势与分析数据
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 仪表盘数据
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.DashboardDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取管理后台仪表盘概览
+      tags:
+      - 仪表盘与统计分析
+  /admin/ip-bans:
+    get:
+      description: 查询全部被封禁的 IP 地址记录及生效状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 黑名单列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_IPBanDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取 IP 封禁黑名单
+      tags:
+      - 仪表盘与统计分析
+    post:
+      consumes:
+      - application/json
+      description: 手动添加或延长指定 IP 的访问封禁时间
+      parameters:
+      - description: 封禁请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.BanRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 封禁成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.IPBanDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 新增 IP 封禁
+      tags:
+      - 仪表盘与统计分析
+  /admin/ip-bans/{id}:
+    delete:
+      description: 根据记录 ID 解除对指定 IP 的拦截封禁
+      parameters:
+      - description: 封禁记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 解封成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 记录不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 解除 IP 封禁
+      tags:
+      - 仪表盘与统计分析
+  /admin/ip-locations:
+    post:
+      consumes:
+      - application/json
+      description: 查询指定 IP 的归属城市/运营商信息（带配额与缓存）
+      parameters:
+      - description: IP 查询请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.IPLocationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: IP 地理位置
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: IP 格式无效
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "429":
+          description: 查询额度超限
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 查询 IP 地理位置
+      tags:
+      - 仪表盘与统计分析
+  /admin/links:
+    get:
+      description: 管理后台查询全部友情链接（含隐藏友链）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 友链列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_FriendLinkDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理端友链列表
+      tags:
+      - 内容管理
+    post:
+      consumes:
+      - application/json
+      description: 管理后台新增友情链接
+      parameters:
+      - description: 友链信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.FriendLinkRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.FriendLinkDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 新增友情链接
+      tags:
+      - 内容管理
+  /admin/links/{id}:
+    delete:
+      description: 根据 ID 删除友情链接
+      parameters:
+      - description: 友链 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 删除友情链接
+      tags:
+      - 内容管理
+    put:
+      consumes:
+      - application/json
+      description: 根据 ID 更新友情链接
+      parameters:
+      - description: 友链 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 友链信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.FriendLinkRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.FriendLinkDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 更新友情链接
+      tags:
+      - 内容管理
+  /admin/login:
+    post:
+      consumes:
+      - application/json
+      description: 校验管理员账号与密码，若启用 2FA 则返回 requires2FA 标志并下发临时待验证凭据
+      parameters:
+      - description: 管理员登录表单
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 登录成功或要求2FA
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.LoginResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 账号或密码错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "429":
+          description: 尝试过于频繁
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 管理员登录
+      tags:
+      - 管理员认证与安全
+  /admin/login/2fa:
+    post:
+      consumes:
+      - application/json
+      description: 提交动态验证码完成 2FA 登录，验证成功后签发管理端 Token 与 CSRF Token
+      parameters:
+      - description: TOTP 6位验证码
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.Login2FARequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 2FA 验证成功并完成登录
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.LoginResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 验证码错误或临时凭据失效
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 2FA 二次验证登录
+      tags:
+      - 管理员认证与安全
+  /admin/logout:
+    post:
+      description: 清除管理员 Session Cookie 与 CSRF 令牌
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 退出成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理员退出登录
+      tags:
+      - 管理员认证与安全
+  /admin/notifications:
+    get:
+      description: 分页查询当前管理员的站内通知消息（支持按类型或仅未读过滤）
+      parameters:
+      - default: 1
+        description: 当前页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      - description: 通知类别(comment/user/security/system)
+        in: query
+        name: kind
+        type: string
+      - description: 仅查未读通知
+        in: query
+        name: unread
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 通知列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_NotificationDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理端通知列表
+      tags:
+      - 站内通知管理
+  /admin/notifications/{id}/read:
+    post:
+      description: 将指定 ID 的通知标记为已读
+      parameters:
+      - description: 通知 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 标记成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 通知不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 标记单个通知已读
+      tags:
+      - 站内通知管理
+  /admin/notifications/read-all:
+    post:
+      description: 将当前管理员名下的所有未读通知一键标记为已读
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 批量标记成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 标记全部通知已读
+      tags:
+      - 站内通知管理
+  /admin/notifications/unread-count:
+    get:
+      description: 统计当前管理员未读通知总数，用于角标展示
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 未读数统计
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取未读通知数量
+      tags:
+      - 站内通知管理
+  /admin/password:
+    put:
+      consumes:
+      - application/json
+      description: 校验原密码并更新管理员账号密码，更新成功后使旧会话失效
+      parameters:
+      - description: 修改密码请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ChangePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 修改密码成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误或密码不合规
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理员修改密码
+      tags:
+      - 管理员认证与安全
+  /admin/posts:
+    get:
+      description: 分页查询管理后台全部文章（含草稿、已发布、隐藏）
+      parameters:
+      - default: 1
+        description: 当前页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文章管理列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_AdminPostDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "403":
+          description: 无权限
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理端文章列表
+      tags:
+      - 内容管理
+    post:
+      consumes:
+      - application/json
+      description: 创建新文章，支持关联分类、标签与设置发布状态
+      parameters:
+      - description: 文章内容
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AdminPostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AdminPostDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "403":
+          description: 无权限
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 新建文章
+      tags:
+      - 内容管理
+  /admin/posts/{id}:
+    delete:
+      description: 根据 ID 删除指定文章及其标签关联
+      parameters:
+      - description: 文章 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 文章不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 删除文章
+      tags:
+      - 内容管理
+    get:
+      description: 根据文章 ID 查询文章详情以供后台编辑
+      parameters:
+      - description: 文章 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文章详情
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AdminPostDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 文章不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取管理端文章详情
+      tags:
+      - 内容管理
+    put:
+      consumes:
+      - application/json
+      description: 根据文章 ID 更新文章属性、正文、分类、标签
+      parameters:
+      - description: 文章 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 更新内容
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AdminPostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AdminPostDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 文章不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 更新文章
+      tags:
+      - 内容管理
+  /admin/profile:
+    get:
+      description: 获取当前已登录管理员的个人信息、权限及2FA状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 个人资料
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.AdminUserDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取当前管理员资料
+      tags:
+      - 管理员认证与安全
+  /admin/projects:
+    get:
+      description: 管理后台查询全部项目（含隐藏项目）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 项目列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_ProjectDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理端项目列表
+      tags:
+      - 内容管理
+    post:
+      consumes:
+      - application/json
+      description: 管理后台新增技术项目作品
+      parameters:
+      - description: 项目信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ProjectDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 新建项目
+      tags:
+      - 内容管理
+  /admin/projects/{id}:
+    delete:
+      description: 根据 ID 删除项目作品
+      parameters:
+      - description: 项目 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 删除项目
+      tags:
+      - 内容管理
+    put:
+      consumes:
+      - application/json
+      description: 根据 ID 更新项目作品信息
+      parameters:
+      - description: 项目 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 项目信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ProjectDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 更新项目
+      tags:
+      - 内容管理
+  /admin/settings:
+    get:
+      description: 获取管理员配置的完整站点系统设置项（包含通知、备案、站长资料等）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 系统配置项
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  additionalProperties:
+                    type: string
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取站点系统设置
+      tags:
+      - 内容管理
+    put:
+      consumes:
+      - application/json
+      description: 批量更新站点系统设置键值对
+      parameters:
+      - description: 系统设置键值对
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新后的系统配置项
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  additionalProperties:
+                    type: string
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 更新站点系统设置
+      tags:
+      - 内容管理
+  /admin/tags:
+    get:
+      description: 查询全部文章标签及对应文章数量
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 标签列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_TaxonomyDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理端标签列表
+      tags:
+      - 内容管理
+    post:
+      consumes:
+      - application/json
+      description: 新建文章标签，slug 需唯一
+      parameters:
+      - description: 标签信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.TaxonomyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.TaxonomyDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 新增文章标签
+      tags:
+      - 内容管理
+  /admin/tags/{id}:
+    delete:
+      description: 删除指定文章标签
+      parameters:
+      - description: 标签 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 删除文章标签
+      tags:
+      - 内容管理
+    put:
+      consumes:
+      - application/json
+      description: 根据标签 ID 更新名称与 slug
+      parameters:
+      - description: 标签 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 标签信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.TaxonomyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.TaxonomyDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 更新文章标签
+      tags:
+      - 内容管理
+  /admin/trends:
+    get:
+      description: 查询指定天数（7~60天，默认14天）的每日PV、UV、评论与新增访客趋势
+      parameters:
+      - default: 14
+        description: 统计天数(7-60)
+        in: query
+        name: days
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 趋势数据
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.TrendsDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 获取访问趋势数据
+      tags:
+      - 仪表盘与统计分析
+  /admin/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 管理员上传文章封面或正文插图（支持 jpg/png/gif/webp，大小不超过 5MB，自动剥离 EXIF 信息）
+      parameters:
+      - description: 图片文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 上传成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.UploadDTO'
+              type: object
+        "400":
+          description: 文件不符合要求
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 上传图片
+      tags:
+      - 内容管理
+  /admin/users:
+    get:
+      description: 分页查询已注册用户/访客账号
+      parameters:
+      - default: 1
+        description: 当前页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 用户列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_AdminVisitorDTO'
+              type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      - CsrfToken: []
+      summary: 管理端用户列表
+      tags:
+      - 仪表盘与统计分析
+  /archive:
+    get:
+      description: 获取按年份和月份聚合的全部已发布文章归档
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 归档文章列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_ArchiveYear'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取文章归档列表
+      tags:
+      - 博客公开接口
+  /auth/email-code:
+    post:
+      consumes:
+      - application/json
+      description: 发送用于注册（register）或重置密码（reset）的邮箱数字验证码
+      parameters:
+      - description: 邮箱与用途
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.EmailCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 发送成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "429":
+          description: 请求过于频繁
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 发送邮箱验证码
+      tags:
+      - 访客认证
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: 访客邮箱密码登录，登录成功后写入认证 Cookie
+      parameters:
+      - description: 登录信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.VisitorLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 登录成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.VisitorAuthResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 邮箱或密码错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "429":
+          description: 多次登录失败账号暂时锁定
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 访客登录
+      tags:
+      - 访客认证
+  /auth/logout:
+    post:
+      description: 清除访客认证状态与 Cookie
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 退出登录成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+      summary: 访客退出登录
+      tags:
+      - 访客认证
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: 访客凭邮箱验证码注册账号并自动登录
+      parameters:
+      - description: 注册信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.VisitorRegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 注册成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.VisitorAuthResponse'
+              type: object
+        "400":
+          description: 验证码错误或参数不合法
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "409":
+          description: 邮箱已存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 访客注册
+      tags:
+      - 访客认证
+  /auth/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: 访客通过邮箱验证码重置登录密码
+      parameters:
+      - description: 重置密码请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.VisitorResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 重置成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 验证码错误或过期
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 重置访客密码
+      tags:
+      - 访客认证
+  /categories:
+    get:
+      description: 获取包含公开文章的分类列表及其文章数量
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 分类列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_TaxonomyDTO'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取公开分类列表
+      tags:
+      - 博客公开接口
+  /categories/{slug}/posts:
+    get:
+      description: 分页获取属于某个分类的已发布文章
+      parameters:
+      - description: 分类 slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - default: 1
+        description: 当前页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文章列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_PostSummary'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取指定分类的文章列表
+      tags:
+      - 博客公开接口
+  /links:
+    get:
+      description: 获取公开可见的友情链接列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 友链列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_FriendLinkDTO'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取友情链接列表
+      tags:
+      - 博客公开接口
+  /posts:
+    get:
+      description: 分页查询已发布文章，支持分类、标签和搜索词过滤
+      parameters:
+      - default: 1
+        description: 当前页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      - description: 文章标识 slug
+        in: query
+        name: slug
+        type: string
+      - description: 分类标识 slug
+        in: query
+        name: category
+        type: string
+      - description: 标签标识 slug
+        in: query
+        name: tag
+        type: string
+      - description: 搜索关键词
+        in: query
+        name: q
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文章列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_PostSummary'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取公开文章列表
+      tags:
+      - 博客公开接口
+  /posts/{slug}:
+    get:
+      description: 根据文章 slug 获取单篇文章完整内容及上下文跳转
+      parameters:
+      - description: 文章 slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文章详情
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PostDetail'
+              type: object
+        "404":
+          description: 文章不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取文章详情
+      tags:
+      - 博客公开接口
+  /posts/{slug}/comments:
+    get:
+      description: 获取指定文章已审核通过的评论列表
+      parameters:
+      - description: 文章 slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 评论列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_CommentDTO'
+              type: object
+        "404":
+          description: 文章不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取文章评论列表
+      tags:
+      - 评论互动
+    post:
+      consumes:
+      - application/json
+      description: 登录的访客用户对指定文章发表评论（提交后需管理员审核）
+      parameters:
+      - description: 文章 slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: 评论内容
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CommentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 评论提交成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.CommentDTO'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "401":
+          description: 未授权登录
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "403":
+          description: 无权限
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "404":
+          description: 文章不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 发表文章评论
+      tags:
+      - 评论互动
+  /posts/{slug}/like:
+    post:
+      description: 根据客户端 IP 对公开文章进行点赞（重复点赞返回当前点赞状态）
+      parameters:
+      - description: 文章 slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 点赞结果
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "404":
+          description: 文章不存在
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 文章点赞
+      tags:
+      - 博客公开接口
+  /projects:
+    get:
+      description: 获取公开可见的个人技术项目列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 项目列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_ProjectDTO'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取精选项目列表
+      tags:
+      - 博客公开接口
+  /robots.txt:
+    get:
+      description: 返回站点的 robots.txt 文本
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: Robots.txt 文本
+          schema:
+            type: string
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 生成 robots.txt 爬虫协议
+      tags:
+      - 站点与公开信息
+  /rss.xml:
+    get:
+      description: 返回符合 RSS 2.0 规范的 XML 文章列表
+      produces:
+      - text/xml
+      responses:
+        "200":
+          description: RSS XML
+          schema:
+            type: string
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 生成 RSS 订阅源
+      tags:
+      - 站点与公开信息
+  /search:
+    get:
+      description: 根据关键词模糊搜索文章标题、摘要和内容
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: q
+        type: string
+      - default: 1
+        description: 当前页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 搜索结果
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_PostSummary'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 站内文章搜索
+      tags:
+      - 博客公开接口
+  /site:
+    get:
+      description: 获取博客站点的基础公开信息，包括站点标题、副标题、站长名、域名、描述及导航项
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.SiteProfile'
+              type: object
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取站点公开配置
+      tags:
+      - 站点与公开信息
+  /sitemap.xml:
+    get:
+      description: 返回符合 sitemap 规范的 XML 链接索引
+      produces:
+      - text/xml
+      responses:
+        "200":
+          description: Sitemap XML
+          schema:
+            type: string
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 生成站点地图
+      tags:
+      - 站点与公开信息
+  /tags:
+    get:
+      description: 获取包含公开文章的标签列表及其文章数量
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 标签列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.ListDTO-handler_TaxonomyDTO'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取公开标签列表
+      tags:
+      - 博客公开接口
+  /tags/{slug}/posts:
+    get:
+      description: 分页获取具有某个标签的已发布文章
+      parameters:
+      - description: 标签 slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - default: 1
+        description: 当前页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 文章列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/handler.PageDTO-handler_PostSummary'
+              type: object
+        "500":
+          description: 服务端错误
+          schema:
+            $ref: '#/definitions/response.ErrorResponse'
+      summary: 获取指定标签的文章列表
+      tags:
+      - 博客公开接口
+securityDefinitions:
+  BearerAuth:
+    description: '请输入 JWT Token，格式为: Bearer <token>'
+    in: header
+    name: Authorization
+    type: apiKey
+  CsrfToken:
+    description: 管理端防跨站请求伪造令牌
+    in: header
+    name: X-CSRF-Token
+    type: apiKey
+swagger: "2.0"

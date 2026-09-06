@@ -36,6 +36,20 @@ type NotificationDTO struct {
 	ReadAt    *string `json:"readAt,omitempty"`
 }
 
+// List 管理端通知列表
+// @Summary 管理端通知列表
+// @Description 分页查询当前管理员的站内通知消息（支持按类型或仅未读过滤）
+// @Tags 站内通知管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param page query int false "当前页码" default(1)
+// @Param pageSize query int false "每页条数" default(20)
+// @Param kind query string false "通知类别(comment/user/security/system)"
+// @Param unread query bool false "仅查未读通知"
+// @Success 200 {object} response.Envelope{data=PageDTO[NotificationDTO]} "通知列表"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/notifications [get]
 func (h AdminNotificationHandler) List(c *gin.Context) {
 	adminID, ok := adminUserID(c)
 	if !ok {
@@ -64,6 +78,16 @@ func (h AdminNotificationHandler) List(c *gin.Context) {
 	response.Success(c, PageDTO[NotificationDTO]{List: items, Page: page, PageSize: pageSize, Total: total})
 }
 
+// UnreadCount 获取未读通知数量
+// @Summary 获取未读通知数量
+// @Description 统计当前管理员未读通知总数，用于角标展示
+// @Tags 站内通知管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=object} "未读数统计"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/notifications/unread-count [get]
 func (h AdminNotificationHandler) UnreadCount(c *gin.Context) {
 	adminID, ok := adminUserID(c)
 	if !ok {
@@ -81,6 +105,19 @@ func (h AdminNotificationHandler) UnreadCount(c *gin.Context) {
 	response.Success(c, gin.H{"count": count})
 }
 
+// MarkRead 标记单个通知已读
+// @Summary 标记单个通知已读
+// @Description 将指定 ID 的通知标记为已读
+// @Tags 站内通知管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Param id path int true "通知 ID"
+// @Success 200 {object} response.Envelope{data=object} "标记成功"
+// @Failure 400 {object} response.ErrorResponse "参数错误"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Failure 404 {object} response.ErrorResponse "通知不存在"
+// @Router /admin/notifications/{id}/read [post]
 func (h AdminNotificationHandler) MarkRead(c *gin.Context) {
 	adminID, ok := adminUserID(c)
 	if !ok {
@@ -101,6 +138,16 @@ func (h AdminNotificationHandler) MarkRead(c *gin.Context) {
 	response.Success(c, gin.H{"updated": true})
 }
 
+// MarkAllRead 标记全部通知已读
+// @Summary 标记全部通知已读
+// @Description 将当前管理员名下的所有未读通知一键标记为已读
+// @Tags 站内通知管理
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=object} "批量标记成功"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/notifications/read-all [post]
 func (h AdminNotificationHandler) MarkAllRead(c *gin.Context) {
 	adminID, ok := adminUserID(c)
 	if !ok {

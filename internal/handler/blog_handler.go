@@ -82,6 +82,20 @@ func NewBlogHandler(db *gorm.DB) BlogHandler {
 	return BlogHandler{db: db}
 }
 
+// ListPosts 获取公开文章列表
+// @Summary 获取公开文章列表
+// @Description 分页查询已发布文章，支持分类、标签和搜索词过滤
+// @Tags 博客公开接口
+// @Produce json
+// @Param page query int false "当前页码" default(1)
+// @Param pageSize query int false "每页条数" default(10)
+// @Param slug query string false "文章标识 slug"
+// @Param category query string false "分类标识 slug"
+// @Param tag query string false "标签标识 slug"
+// @Param q query string false "搜索关键词"
+// @Success 200 {object} response.Envelope{data=PageDTO[PostSummary]} "文章列表"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /posts [get]
 func (h BlogHandler) ListPosts(c *gin.Context) {
 	page, pageSize := pagination(c)
 	result, err := h.paginatedPosts(postFilters{
@@ -98,6 +112,16 @@ func (h BlogHandler) ListPosts(c *gin.Context) {
 	response.SuccessPublic(c, result, 30*time.Second)
 }
 
+// GetPost 获取文章详情
+// @Summary 获取文章详情
+// @Description 根据文章 slug 获取单篇文章完整内容及上下文跳转
+// @Tags 博客公开接口
+// @Produce json
+// @Param slug path string true "文章 slug"
+// @Success 200 {object} response.Envelope{data=PostDetail} "文章详情"
+// @Failure 404 {object} response.ErrorResponse "文章不存在"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /posts/{slug} [get]
 func (h BlogHandler) GetPost(c *gin.Context) {
 	var post model.Post
 	if err := h.db.Preload("Category").Preload("Tags").
@@ -139,6 +163,14 @@ func (h BlogHandler) GetPost(c *gin.Context) {
 	})
 }
 
+// ListCategories 获取公开分类列表
+// @Summary 获取公开分类列表
+// @Description 获取包含公开文章的分类列表及其文章数量
+// @Tags 博客公开接口
+// @Produce json
+// @Success 200 {object} response.Envelope{data=ListDTO[TaxonomyDTO]} "分类列表"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /categories [get]
 func (h BlogHandler) ListCategories(c *gin.Context) {
 	var categories []model.Category
 	if err := h.db.Order("name asc").Find(&categories).Error; err != nil {
@@ -162,6 +194,17 @@ func (h BlogHandler) ListCategories(c *gin.Context) {
 	response.SuccessPublic(c, ListDTO[TaxonomyDTO]{List: list}, 30*time.Second)
 }
 
+// ListCategoryPosts 获取指定分类的文章列表
+// @Summary 获取指定分类的文章列表
+// @Description 分页获取属于某个分类的已发布文章
+// @Tags 博客公开接口
+// @Produce json
+// @Param slug path string true "分类 slug"
+// @Param page query int false "当前页码" default(1)
+// @Param pageSize query int false "每页条数" default(10)
+// @Success 200 {object} response.Envelope{data=PageDTO[PostSummary]} "文章列表"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /categories/{slug}/posts [get]
 func (h BlogHandler) ListCategoryPosts(c *gin.Context) {
 	page, pageSize := pagination(c)
 	result, err := h.paginatedPosts(postFilters{Category: c.Param("slug")}, page, pageSize)
@@ -173,6 +216,14 @@ func (h BlogHandler) ListCategoryPosts(c *gin.Context) {
 	response.SuccessPublic(c, result, 30*time.Second)
 }
 
+// ListTags 获取公开标签列表
+// @Summary 获取公开标签列表
+// @Description 获取包含公开文章的标签列表及其文章数量
+// @Tags 博客公开接口
+// @Produce json
+// @Success 200 {object} response.Envelope{data=ListDTO[TaxonomyDTO]} "标签列表"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /tags [get]
 func (h BlogHandler) ListTags(c *gin.Context) {
 	var tags []model.Tag
 	if err := h.db.Order("name asc").Find(&tags).Error; err != nil {
@@ -196,6 +247,17 @@ func (h BlogHandler) ListTags(c *gin.Context) {
 	response.SuccessPublic(c, ListDTO[TaxonomyDTO]{List: list}, 30*time.Second)
 }
 
+// ListTagPosts 获取指定标签的文章列表
+// @Summary 获取指定标签的文章列表
+// @Description 分页获取具有某个标签的已发布文章
+// @Tags 博客公开接口
+// @Produce json
+// @Param slug path string true "标签 slug"
+// @Param page query int false "当前页码" default(1)
+// @Param pageSize query int false "每页条数" default(10)
+// @Success 200 {object} response.Envelope{data=PageDTO[PostSummary]} "文章列表"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /tags/{slug}/posts [get]
 func (h BlogHandler) ListTagPosts(c *gin.Context) {
 	page, pageSize := pagination(c)
 	result, err := h.paginatedPosts(postFilters{Tag: c.Param("slug")}, page, pageSize)
@@ -207,6 +269,17 @@ func (h BlogHandler) ListTagPosts(c *gin.Context) {
 	response.SuccessPublic(c, result, 30*time.Second)
 }
 
+// Search 站内文章搜索
+// @Summary 站内文章搜索
+// @Description 根据关键词模糊搜索文章标题、摘要和内容
+// @Tags 博客公开接口
+// @Produce json
+// @Param q query string false "搜索关键词"
+// @Param page query int false "当前页码" default(1)
+// @Param pageSize query int false "每页条数" default(10)
+// @Success 200 {object} response.Envelope{data=PageDTO[PostSummary]} "搜索结果"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /search [get]
 func (h BlogHandler) Search(c *gin.Context) {
 	page, pageSize := pagination(c)
 	result, err := h.paginatedPosts(postFilters{Query: strings.TrimSpace(c.Query("q"))}, page, pageSize)
@@ -218,6 +291,14 @@ func (h BlogHandler) Search(c *gin.Context) {
 	response.SuccessPublic(c, result, 30*time.Second)
 }
 
+// Archive 获取文章归档列表
+// @Summary 获取文章归档列表
+// @Description 获取按年份和月份聚合的全部已发布文章归档
+// @Tags 博客公开接口
+// @Produce json
+// @Success 200 {object} response.Envelope{data=ListDTO[ArchiveYear]} "归档文章列表"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /archive [get]
 func (h BlogHandler) Archive(c *gin.Context) {
 	var posts []model.Post
 	if err := h.postQuery(postFilters{}).
@@ -254,6 +335,14 @@ func (h BlogHandler) Archive(c *gin.Context) {
 	response.SuccessPublic(c, ListDTO[ArchiveYear]{List: years}, 30*time.Second)
 }
 
+// ListProjects 获取精选项目列表
+// @Summary 获取精选项目列表
+// @Description 获取公开可见的个人技术项目列表
+// @Tags 博客公开接口
+// @Produce json
+// @Success 200 {object} response.Envelope{data=ListDTO[ProjectDTO]} "项目列表"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /projects [get]
 func (h BlogHandler) ListProjects(c *gin.Context) {
 	var projects []model.Project
 	if err := h.db.Where("visible = ?", true).
@@ -272,6 +361,14 @@ func (h BlogHandler) ListProjects(c *gin.Context) {
 	response.SuccessPublic(c, ListDTO[ProjectDTO]{List: list}, 30*time.Second)
 }
 
+// ListLinks 获取友情链接列表
+// @Summary 获取友情链接列表
+// @Description 获取公开可见的友情链接列表
+// @Tags 博客公开接口
+// @Produce json
+// @Success 200 {object} response.Envelope{data=ListDTO[FriendLinkDTO]} "友链列表"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /links [get]
 func (h BlogHandler) ListLinks(c *gin.Context) {
 	var links []model.FriendLink
 	if err := h.db.Where("visible = ?", true).
@@ -291,6 +388,15 @@ func (h BlogHandler) ListLinks(c *gin.Context) {
 }
 
 // LikePost records an IP-unique like for a published post.
+// @Summary 文章点赞
+// @Description 根据客户端 IP 对公开文章进行点赞（重复点赞返回当前点赞状态）
+// @Tags 博客公开接口
+// @Produce json
+// @Param slug path string true "文章 slug"
+// @Success 200 {object} response.Envelope{data=object} "点赞结果"
+// @Failure 404 {object} response.ErrorResponse "文章不存在"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /posts/{slug}/like [post]
 func (h BlogHandler) LikePost(c *gin.Context) {
 	var post model.Post
 	if err := h.db.Where("slug = ? AND status = ?", c.Param("slug"), model.PostStatusPublished).

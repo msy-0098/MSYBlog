@@ -58,6 +58,14 @@ func NewFeedHandler(db *gorm.DB, cfg config.Config) FeedHandler {
 	return FeedHandler{db: db, fallback: cfg.Site}
 }
 
+// RSS 生成 RSS 2.0 订阅源
+// @Summary 生成 RSS 订阅源
+// @Description 返回符合 RSS 2.0 规范的 XML 文章列表
+// @Tags 站点与公开信息
+// @Produce xml
+// @Success 200 {string} string "RSS XML"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /rss.xml [get]
 func (h FeedHandler) RSS(c *gin.Context) {
 	profile, err := h.loadProfile()
 	if err != nil {
@@ -97,6 +105,14 @@ func (h FeedHandler) RSS(c *gin.Context) {
 	writeXML(c, feed)
 }
 
+// Sitemap 生成站点地图
+// @Summary 生成站点地图
+// @Description 返回符合 sitemap 规范的 XML 链接索引
+// @Tags 站点与公开信息
+// @Produce xml
+// @Success 200 {string} string "Sitemap XML"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /sitemap.xml [get]
 func (h FeedHandler) Sitemap(c *gin.Context) {
 	profile, err := h.loadProfile()
 	if err != nil {
@@ -140,6 +156,14 @@ func (h FeedHandler) Sitemap(c *gin.Context) {
 	})
 }
 
+// Robots 生成爬虫协议文件
+// @Summary 生成 robots.txt 爬虫协议
+// @Description 返回站点的 robots.txt 文本
+// @Tags 站点与公开信息
+// @Produce plain
+// @Success 200 {string} string "Robots.txt 文本"
+// @Failure 500 {object} response.ErrorResponse "服务端错误"
+// @Router /robots.txt [get]
 func (h FeedHandler) Robots(c *gin.Context) {
 	profile, err := h.loadProfile()
 	if err != nil {

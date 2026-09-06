@@ -50,10 +50,30 @@ func NewAdminAIStatusHandler(runtime *service.AIRuntime, provider, model, baseUR
 	}
 }
 
+// Status 获取 AI 服务当前配置与运行状态
+// @Summary 获取 AI 服务状态
+// @Description 查询后台配置的 AI Provider、模型名与最近健康检查结果
+// @Tags AI 助手与智能工具
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=AIStatusDTO} "AI 服务状态"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/ai/status [get]
 func (h *AdminAIStatusHandler) Status(c *gin.Context) {
 	response.Success(c, h.status())
 }
 
+// HealthCheck 执行 AI 服务健康检查
+// @Summary 执行 AI 服务健康检查
+// @Description 向 AI 上游服务发起心跳探测，验证 API Key 与连通性
+// @Tags AI 助手与智能工具
+// @Produce json
+// @Security BearerAuth
+// @Security CsrfToken
+// @Success 200 {object} response.Envelope{data=AIHealthDTO} "健康检查结果"
+// @Failure 401 {object} response.ErrorResponse "未登录"
+// @Router /admin/ai/health-check [post]
 func (h *AdminAIStatusHandler) HealthCheck(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), aiHealthCheckTimeout)
 	defer cancel()
